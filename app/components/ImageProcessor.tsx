@@ -61,10 +61,17 @@ export default function ImageProcessor({ onStateChange }: ImageProcessorProps) {
 
   // Notify parent when blur changes
   useEffect(() => {
-    if (state.hasImage && sourceImageData) {
-      notifyStateChange({ blur });
+    if (state.hasImage && sourceImageData && onStateChange) {
+      const currentState: ImageState = {
+        hasImage: state.hasImage,
+        width: sourceImageData.width,
+        height: sourceImageData.height,
+        blur,
+        isGrayscale,
+      };
+      onStateChange(currentState);
     }
-  }, [blur, state.hasImage, sourceImageData, notifyStateChange]);
+  }, [blur, state.hasImage, sourceImageData, isGrayscale, onStateChange]);
 
   // Render image to canvas when imageData changes
   useLayoutEffect(() => {

@@ -1,6 +1,6 @@
 'use client';
 
-import { useChat } from 'ai/react';
+import { useState, FormEvent, ChangeEvent } from 'react';
 import { ImageState } from '@/lib/types';
 import { getMessageClasses } from '@/lib/chat';
 import LoadingIndicator from './LoadingIndicator';
@@ -9,11 +9,120 @@ interface ChatInterfaceProps {
   imageState: ImageState;
 }
 
+interface Message {
+  id: string;
+  role: 'user' | 'assistant';
+  content: string;
+}
+
 export default function ChatInterface({ imageState }: ChatInterfaceProps) {
-  const { messages, input, handleInputChange, handleSubmit, isLoading } = useChat({
-    api: '/api/chat',
-    body: { imageContext: imageState },
-  });
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [input, setInput] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+
+  const handleInputChange = (e: ChangeEvent<HTMLInputElement>) => {
+    setInput(e.target.value);
+  };
+
+  const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    
+    if (!input.trim() || isLoading) return;
+
+    const userMessage: Message = {
+      id: Date.now().toString(),
+      role: 'user',
+      content: input.trim(),
+    };
+
+    setMessages(prev => [...prev, userMessage]);
+    setInput('');
+    setIsLoading(true);
+
+    // Hoist assistantMessage outside try block so we can reference it in catch
+    const assistantMessageId = (Date.now() + 1).toString();
+    let assistantMessageAdded = false;
+
+    try {
+      const response = await fetch('/api/chat', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          messages: [...messages, userMessage].map(m => ({
+            role: m.role,
+            content: m.content,
+          })),
+          imageContext: imageState,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to get response');
+      }
+
+      const reader = response.body?.getReader();
+      const decoder = new TextDecoder();
+      let assistantContent = '';
+
+      const assistantMessage: Message = {
+        id: assistantMessageId,
+        role: 'assistant',
+        content: '',
+      };
+
+      setMessages(prev => [...prev, assistantMessage]);
+      assistantMessageAdded = true;
+
+      if (reader) {
+        try {
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+
+            const chunk = decoder.decode(value, { stream: true });
+            assistantContent += chunk;
+
+            setMessages(prev => 
+              prev.map(m => 
+                m.id === assistantMessageId 
+                  ? { ...m, content: assistantContent }
+                  : m
+              )
+            );
+          }
+        } catch (streamError) {
+          console.error('Stream reading error:', streamError);
+          throw streamError;
+        }
+      }
+    } catch (error) {
+      console.error('Chat error:', error);
+      const errorContent = 'Sorry, I encountered an error. Please try again.';
+      
+      if (assistantMessageAdded) {
+        // Update the existing orphaned assistant message with error content
+        setMessages(prev => 
+          prev.map(m => 
+            m.id === assistantMessageId 
+              ? { ...m, content: errorContent }
+              : m
+          )
+        );
+      } else {
+        // No assistant message was added yet, so add the error message
+        const errorMessage: Message = {
+          id: assistantMessageId,
+          role: 'assistant',
+          content: errorContent,
+        };
+        setMessages(prev => [...prev, errorMessage]);
+      }
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   return (
     <div className="flex flex-col h-full bg-zinc-50 dark:bg-zinc-900 rounded-lg border border-zinc-200 dark:border-zinc-700">
@@ -37,7 +146,7 @@ export default function ChatInterface({ imageState }: ChatInterfaceProps) {
           messages.map((message) => (
             <div
               key={message.id}
-              className={`max-w-[80%] px-3 py-2 rounded-lg text-sm ${getMessageClasses(message.role as 'user' | 'assistant')}`}
+              className={`max-w-[80%] px-3 py-2 rounded-lg text-sm ${getMessageClasses(message.role)}`}
             >
               {message.content}
             </div>

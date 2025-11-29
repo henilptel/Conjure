@@ -49,6 +49,24 @@ export function isMagickInitialized(): boolean {
   return isInitialized;
 }
 
+/**
+ * ImageData structure for image processing operations
+ * 
+ * Architecture Note:
+ * - pixels: Current RGBA pixel data for canvas rendering
+ * - originalBytes: Source image bytes (PNG/JPEG/etc) for re-processing
+ * - width, height: Image dimensions
+ * 
+ * Operation Types:
+ * 1. DESTRUCTIVE base transformations (e.g., convertToGrayscale):
+ *    - Update originalBytes to reflect the new base state
+ *    - Subsequent operations apply to the transformed base
+ * 
+ * 2. NON-DESTRUCTIVE preview transformations (e.g., blurImage):
+ *    - Preserve originalBytes unchanged
+ *    - Always read from originalBytes for consistent results
+ *    - Enable real-time preview with ability to revert
+ */
 export interface ImageData {
   pixels: Uint8Array;
   width: number;
@@ -91,8 +109,13 @@ export function readImageData(data: Uint8Array): Promise<ImageData> {
 
 /**
  * Converts image data to grayscale using Magick.WASM
+ * 
+ * NOTE: This is a DESTRUCTIVE base transformation that updates originalBytes.
+ * Unlike blurImage (which is non-destructive), this operation modifies the base
+ * image state so that subsequent operations (like blur) are applied to the grayscale version.
+ * 
  * @param data - Original image data containing originalBytes for re-processing
- * @returns Promise containing grayscale image data with updated originalBytes
+ * @returns Promise containing grayscale image data with updated originalBytes (grayscale PNG)
  */
 export function convertToGrayscale(data: ImageData): Promise<ImageData> {
   if (!isInitialized) {
@@ -119,7 +142,7 @@ export function convertToGrayscale(data: ImageData): Promise<ImageData> {
               pixels: new Uint8Array(pixels), 
               width, 
               height,
-              originalBytes: newOriginalBytes // Update originalBytes to grayscale version
+              originalBytes: newOriginalBytes // DESTRUCTIVE: Update originalBytes to grayscale version
             });
           });
         });
@@ -132,6 +155,12 @@ export function convertToGrayscale(data: ImageData): Promise<ImageData> {
 
 /**
  * Applies Gaussian blur to an image
+ * 
+ * NOTE: This is a NON-DESTRUCTIVE preview transformation that preserves originalBytes.
+ * Unlike convertToGrayscale (which is destructive), this operation always reads from
+ * originalBytes and returns new pixels without modifying the base image state.
+ * This enables real-time blur preview with the ability to return to the unblurred state.
+ * 
  * @param data - ImageData containing originalBytes for non-destructive editing
  * @param radius - Blur radius (0-20). A radius of 0 returns the original image unchanged.
  * @returns Promise<ImageData> with blurred pixels and preserved originalBytes
@@ -169,7 +198,7 @@ export function blurImage(data: ImageData, radius: number): Promise<ImageData> {
             pixels: new Uint8Array(pixels),
             width,
             height,
-            originalBytes: data.originalBytes // Preserve original for non-destructive editing
+            originalBytes: data.originalBytes // NON-DESTRUCTIVE: Preserve original for non-destructive editing
           });
         });
       });

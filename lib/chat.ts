@@ -42,8 +42,40 @@ export function parseRequestBody(body: unknown): { messages: ChatMessage[]; imag
     throw new Error('Messages must be an array');
   }
 
+  // Validate message structure
+  for (const msg of messages) {
+    if (!msg || typeof msg !== 'object') {
+      throw new Error('Invalid message format');
+    }
+    const { role, content } = msg as { role?: unknown; content?: unknown };
+    if (typeof role !== 'string' || !['user', 'assistant', 'system'].includes(role)) {
+      throw new Error('Invalid message role');
+    }
+    if (typeof content !== 'string') {
+      throw new Error('Invalid message content');
+    }
+  }
+
   if (!imageContext || typeof imageContext !== 'object') {
     throw new Error('imageContext is required');
+  }
+
+  // Validate imageContext structure
+  const ctx = imageContext as Record<string, unknown>;
+  if (typeof ctx.hasImage !== 'boolean') {
+    throw new Error('imageContext.hasImage must be a boolean');
+  }
+  if (ctx.width !== undefined && ctx.width !== null && typeof ctx.width !== 'number') {
+    throw new Error('imageContext.width must be a number or null');
+  }
+  if (ctx.height !== undefined && ctx.height !== null && typeof ctx.height !== 'number') {
+    throw new Error('imageContext.height must be a number or null');
+  }
+  if (typeof ctx.blur !== 'number') {
+    throw new Error('imageContext.blur must be a number');
+  }
+  if (typeof ctx.isGrayscale !== 'boolean') {
+    throw new Error('imageContext.isGrayscale must be a boolean');
   }
 
   return {

@@ -10,6 +10,7 @@
     "test": "jest"
   },
   "dependencies": {
+    "@ai-sdk/groq": "^2.0.32",
     "@ai-sdk/openai": "^2.0.74",
     "@ai-sdk/react": "^2.0.104",
     "@imagemagick/magick-wasm": "^0.0.37",

@@ -34,6 +34,7 @@ Most web-based image editors either upload your files to a server or rely on lim
 - `lib/canvas.ts` - Canvas rendering with aspect ratio calculations
 - `lib/validation.ts` - File type validation
 - `app/components/ImageProcessor.tsx` - Main UI component with state management and debounced processing
+- `app/components/LoadingIndicator.tsx` - Loading state feedback component
 - `app/components/ui/Slider.tsx` - Reusable slider component for parameter controls
 
 **Idempotent Initialization**: The Magick.WASM library is initialized once and reused across operations, with proper promise handling to prevent race conditions.
