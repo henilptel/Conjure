@@ -1,10 +1,11 @@
 'use client';
 
-import { useState, useRef, ChangeEvent, useLayoutEffect } from 'react';
+import { useState, useRef, ChangeEvent, useLayoutEffect, useEffect, useCallback } from 'react';
 import { validateImageFile, FileValidationResult } from '@/lib/validation';
-import { initializeMagick, readImageData, convertToGrayscale, ImageData } from '@/lib/magick';
+import { initializeMagick, readImageData, convertToGrayscale, blurImage, ImageData } from '@/lib/magick';
 import { renderImageToCanvas } from '@/lib/canvas';
 import LoadingIndicator from './LoadingIndicator';
+import Slider from './ui/Slider';
 
 type ProcessingStatus = 'idle' | 'initializing' | 'processing' | 'complete' | 'error';
 
@@ -21,12 +22,23 @@ export default function ImageProcessor() {
     hasImage: false,
   });
   
+  // sourceImageData: the base image (after grayscale or other non-blur transforms)
+  // imageData: the displayed image (sourceImageData + blur applied)
+  const [sourceImageData, setSourceImageData] = useState<ImageData | null>(null);
   const [imageData, setImageData] = useState<ImageData | null>(null);
+  const [blur, setBlur] = useState(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  
+  // Ref to track source for blur operations
+  const sourceImageDataRef = useRef<ImageData | null>(null);
+  
+  // Keep the ref in sync with state
+  useEffect(() => {
+    sourceImageDataRef.current = sourceImageData;
+  }, [sourceImageData]);
 
-  // Render image to canvas when imageData changes - useLayoutEffect is appropriate here
-  // as we're synchronizing React state with the DOM (canvas rendering)
+  // Render image to canvas when imageData changes
   useLayoutEffect(() => {
     if (imageData && canvasRef.current) {
       renderImageToCanvas(
@@ -37,6 +49,61 @@ export default function ImageProcessor() {
       );
     }
   }, [imageData]);
+
+  // Operation counter for race condition prevention
+  const blurOperationRef = useRef(0);
+
+  // Apply blur to source image - memoized to avoid recreating on every render
+  const applyBlur = useCallback(async (source: ImageData, blurRadius: number, operationId: number) => {
+    const blurredData = await blurImage(source, blurRadius);
+    
+    // Only apply if this is still the latest operation
+    if (blurOperationRef.current === operationId) {
+      setImageData({ ...blurredData });
+      setState(prev => ({ ...prev, status: 'complete' }));
+    }
+  }, []);
+
+  // Debounced blur processing - always applies blur from sourceImageData
+  useEffect(() => {
+    const source = sourceImageDataRef.current;
+    if (!source) return;
+
+    // If no blur, just use source directly without processing
+    if (blur === 0) {
+      setImageData(source);
+      setState(prev => ({ ...prev, status: 'complete' }));
+      return;
+    }
+
+    // Increment operation counter to invalidate any in-flight operations
+    const operationId = ++blurOperationRef.current;
+
+    const timeoutId = setTimeout(async () => {
+      // Re-check source in case it changed during debounce
+      const currentSource = sourceImageDataRef.current;
+      if (!currentSource) return;
+      
+      // Skip if operation was superseded
+      if (blurOperationRef.current !== operationId) return;
+
+      setState(prev => ({ ...prev, error: null, status: 'processing' }));
+
+      try {
+        await applyBlur(currentSource, blur, operationId);
+      } catch (err) {
+        // Only show error if this is still the latest operation
+        if (blurOperationRef.current === operationId) {
+          const errorMessage = err instanceof Error 
+            ? err.message 
+            : 'Failed to apply blur effect. Please try again.';
+          setState(prev => ({ ...prev, error: errorMessage, status: 'error' }));
+        }
+      }
+    }, 300);
+
+    return () => clearTimeout(timeoutId);
+  }, [blur, sourceImageData, applyBlur]);
 
   const handleFileSelect = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -84,7 +151,9 @@ export default function ImageProcessor() {
       
       // Read image data using Magick.WASM
       const data = await readImageData(uint8Array);
+      setSourceImageData(data);
       setImageData(data);
+      setBlur(0); // Reset blur for new image
       
       setState(prev => ({
         ...prev,
@@ -105,7 +174,7 @@ export default function ImageProcessor() {
   };
 
   const handleGrayscale = async () => {
-    if (!imageData) {
+    if (!sourceImageData) {
       return;
     }
 
@@ -116,13 +185,16 @@ export default function ImageProcessor() {
     }));
 
     try {
-      const grayscaleData = await convertToGrayscale(imageData);
-      setImageData(grayscaleData);
+      const grayscaleData = await convertToGrayscale(sourceImageData);
+      // Update source to grayscale - blur effect will be re-applied automatically
+      setSourceImageData(grayscaleData);
       
-      setState(prev => ({
-        ...prev,
-        status: 'complete',
-      }));
+      // If no blur, also update displayed image directly
+      if (blur === 0) {
+        setImageData(grayscaleData);
+        setState(prev => ({ ...prev, status: 'complete' }));
+      }
+      // If blur > 0, the blur effect will trigger and update imageData
     } catch (err) {
       const errorMessage = err instanceof Error 
         ? err.message 
@@ -133,7 +205,6 @@ export default function ImageProcessor() {
         error: errorMessage,
         status: 'error',
       }));
-      // Original image is preserved since we only update imageData on success
     }
   };
 
@@ -223,6 +294,18 @@ export default function ImageProcessor() {
           >
             Make Grayscale
           </button>
+          
+          {/* Blur Slider */}
+          <div className="w-full max-w-xs">
+            <Slider
+              value={blur}
+              min={0}
+              max={20}
+              onChange={setBlur}
+              label="Blur"
+              disabled={isProcessing}
+            />
+          </div>
         </div>
       )}
     </div>
