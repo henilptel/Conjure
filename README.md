@@ -10,6 +10,8 @@ Most web-based image editors either upload your files to a server or rely on lim
 
 - **Client-Side Processing**: All operations run locally using WebAssembly
 - **Grayscale Conversion**: Transform images to grayscale with ImageMagick's proven algorithms
+- **Blur Slider Control**: Adjust Gaussian blur intensity (0-20 radius) with real-time preview and debounced processing
+- **Non-Destructive Editing**: All effects apply to the original source image, so adjusting sliders never compounds effects
 - **Aspect Ratio Preservation**: Images are automatically scaled to fit the canvas while maintaining their original proportions
 - **File Validation**: Supports PNG, JPEG, GIF, and WebP formats with proper validation
 - **Zero Server Dependencies**: No image uploads, no cloud processing, no privacy concerns
@@ -28,10 +30,11 @@ Most web-based image editors either upload your files to a server or rely on lim
 **SharedArrayBuffer Configuration**: The project configures specific HTTP headers (`Cross-Origin-Opener-Policy` and `Cross-Origin-Embedder-Policy`) to enable SharedArrayBuffer, which is required for optimal WebAssembly performance.
 
 **Modular Architecture**: The codebase is organized into focused modules:
-- `lib/magick.ts` - WebAssembly initialization and image operations
+- `lib/magick.ts` - WebAssembly initialization and image operations (grayscale, blur)
 - `lib/canvas.ts` - Canvas rendering with aspect ratio calculations
 - `lib/validation.ts` - File type validation
-- `app/components/ImageProcessor.tsx` - Main UI component with state management
+- `app/components/ImageProcessor.tsx` - Main UI component with state management and debounced processing
+- `app/components/ui/Slider.tsx` - Reusable slider component for parameter controls
 
 **Idempotent Initialization**: The Magick.WASM library is initialized once and reused across operations, with proper promise handling to prevent race conditions.
 
@@ -73,12 +76,14 @@ npm test
 ```
 ├── app/
 │   ├── components/
-│   │   ├── ImageProcessor.tsx    # Main image processing UI
-│   │   └── LoadingIndicator.tsx  # Loading state component
+│   │   ├── ImageProcessor.tsx    # Main image processing UI with blur controls
+│   │   ├── LoadingIndicator.tsx  # Loading state component
+│   │   └── ui/
+│   │       └── Slider.tsx        # Reusable slider component
 │   ├── page.tsx                  # Home page
 │   └── layout.tsx                # Root layout
 ├── lib/
-│   ├── magick.ts                 # ImageMagick WASM wrapper
+│   ├── magick.ts                 # ImageMagick WASM wrapper (grayscale, blur)
 │   ├── canvas.ts                 # Canvas rendering utilities
 │   └── validation.ts             # File validation logic
 ├── __tests__/
@@ -95,7 +100,9 @@ npm test
 
 3. **Canvas Rendering**: The pixel data is rendered to an HTML canvas element, with automatic scaling to fit within 800×600px while preserving the original aspect ratio.
 
-4. **Grayscale Conversion**: When you click "Make Grayscale", ImageMagick processes the original image data (not the canvas) to ensure quality, then re-renders the result.
+4. **Image Processing**: Apply effects like grayscale or blur. All operations process the original image data (not previously processed results) to ensure quality and prevent compounding artifacts.
+
+5. **Blur Control**: Drag the blur slider to adjust intensity. The UI updates immediately, but actual WASM processing is debounced (300ms) to prevent excessive computation during rapid adjustments.
 
 ## Browser Compatibility
 
@@ -106,8 +113,8 @@ Requires a modern browser with WebAssembly and SharedArrayBuffer support:
 
 ## Future Enhancements
 
-This is v0.1—a proof of concept demonstrating client-side ImageMagick integration. Planned features include:
-- Additional image operations (brightness, contrast, blur, etc.)
-- Manual control sliders for fine-tuning
+This is v0.2—now with manual slider controls for image processing. Planned features include:
+- Additional image operations (brightness, contrast, saturation, etc.)
+- More slider controls for fine-tuning various parameters
 - AI-powered generative UI (LLM generates appropriate controls based on natural language descriptions)
 - Batch processing support
