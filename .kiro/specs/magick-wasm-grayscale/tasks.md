@@ -30,34 +30,34 @@
     - Implement file selection handler with validation
     - _Requirements: 2.1, 2.2_
 
-- [ ] 3. Implement Magick.WASM initialization and image display
-  - [ ] 3.1 Create Magick.WASM initialization utility
+- [x] 3. Implement Magick.WASM initialization and image display
+  - [x] 3.1 Create Magick.WASM initialization utility
     - Create `lib/magick.ts` with initialization logic
     - Handle WASM loading and initialization
     - Export initialized ImageMagick instance
     - _Requirements: 3.1_
-  - [ ] 3.2 Implement canvas rendering with aspect ratio preservation
+  - [x] 3.2 Implement canvas rendering with aspect ratio preservation
     - Create `lib/canvas.ts` with dimension calculation utilities
     - Calculate scaled dimensions maintaining aspect ratio
     - Implement `renderImageToCanvas` function
     - _Requirements: 3.2, 3.3_
-  - [ ] 3.3 Write property test for aspect ratio preservation
+  - [x] 3.3 Write property test for aspect ratio preservation
     - **Property 3: Aspect Ratio Preservation**
     - Generate random image dimensions and verify ratio is maintained
     - **Validates: Requirements 3.3**
-  - [ ] 3.4 Integrate WASM initialization and canvas rendering into ImageProcessor
+  - [x] 3.4 Integrate WASM initialization and canvas rendering into ImageProcessor
     - Initialize Magick.WASM when image is uploaded
     - Render uploaded image to canvas
     - Display loading state during initialization
     - _Requirements: 3.1, 3.2, 5.1_
 
-- [ ] 4. Implement grayscale conversion
-  - [ ] 4.1 Create grayscale conversion function
+- [x] 4. Implement grayscale conversion
+  - [x] 4.1 Create grayscale conversion function
     - Add `convertToGrayscale` function in `lib/magick.ts`
     - Use Magick.WASM grayscale command
     - Return processed image data
     - _Requirements: 4.2_
-  - [ ] 4.2 Add grayscale button and integrate conversion
+  - [x] 4.2 Add grayscale button and integrate conversion
     - Show "Make Grayscale" button when image is displayed
     - Call conversion function on click
     - Re-render converted image to canvas

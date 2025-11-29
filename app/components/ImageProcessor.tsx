@@ -1,25 +1,48 @@
 'use client';
 
-import { useState, useRef, ChangeEvent } from 'react';
+import { useState, useRef, ChangeEvent, useEffect } from 'react';
 import { validateImageFile, FileValidationResult } from '@/lib/validation';
+import { initializeMagick, readImageData, convertToGrayscale, ImageData } from '@/lib/magick';
+import { renderImageToCanvas } from '@/lib/canvas';
+
+type ProcessingStatus = 'idle' | 'initializing' | 'processing' | 'complete' | 'error';
 
 interface ImageProcessorState {
-  isInitialized: boolean;
-  isProcessing: boolean;
+  status: ProcessingStatus;
   error: string | null;
   hasImage: boolean;
 }
 
 export default function ImageProcessor() {
   const [state, setState] = useState<ImageProcessorState>({
-    isInitialized: false,
-    isProcessing: false,
+    status: 'idle',
     error: null,
     hasImage: false,
   });
   
-  const [imageData, setImageData] = useState<ArrayBuffer | null>(null);
+  const [imageData, setImageData] = useState<ImageData | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+
+  // Render image to canvas when imageData changes
+  useEffect(() => {
+    if (imageData && canvasRef.current) {
+      try {
+        renderImageToCanvas(
+          canvasRef.current,
+          imageData.pixels,
+          imageData.width,
+          imageData.height
+        );
+      } catch (err) {
+        setState(prev => ({
+          ...prev,
+          error: 'Failed to render image to canvas',
+          status: 'error',
+        }));
+      }
+    }
+  }, [imageData]);
 
   const handleFileSelect = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -36,6 +59,7 @@ export default function ImageProcessor() {
         ...prev,
         error: validationResult.error || 'Invalid file',
         hasImage: false,
+        status: 'error',
       }));
       // Reset the file input
       if (fileInputRef.current) {
@@ -44,31 +68,82 @@ export default function ImageProcessor() {
       return;
     }
 
-    // Clear any previous errors
+    // Clear any previous errors and start initialization
     setState(prev => ({
       ...prev,
       error: null,
-      isProcessing: true,
+      status: 'initializing',
     }));
 
     try {
+      // Initialize Magick.WASM
+      await initializeMagick();
+      
+      setState(prev => ({
+        ...prev,
+        status: 'processing',
+      }));
+
       // Read the file into memory
       const arrayBuffer = await file.arrayBuffer();
-      setImageData(arrayBuffer);
+      const uint8Array = new Uint8Array(arrayBuffer);
+      
+      // Read image data using Magick.WASM
+      const data = await readImageData(uint8Array);
+      setImageData(data);
       
       setState(prev => ({
         ...prev,
         hasImage: true,
-        isProcessing: false,
+        status: 'complete',
       }));
     } catch (err) {
+      const errorMessage = err instanceof Error 
+        ? err.message 
+        : 'Failed to process the image. Please try again.';
+      
       setState(prev => ({
         ...prev,
-        error: 'Failed to read the selected file. Please try again.',
-        isProcessing: false,
+        error: errorMessage,
+        status: 'error',
       }));
     }
   };
+
+  const handleGrayscale = async () => {
+    if (!imageData) {
+      return;
+    }
+
+    setState(prev => ({
+      ...prev,
+      error: null,
+      status: 'processing',
+    }));
+
+    try {
+      const grayscaleData = await convertToGrayscale(imageData);
+      setImageData(grayscaleData);
+      
+      setState(prev => ({
+        ...prev,
+        status: 'complete',
+      }));
+    } catch (err) {
+      const errorMessage = err instanceof Error 
+        ? err.message 
+        : 'Failed to convert image. Please try again.';
+      
+      setState(prev => ({
+        ...prev,
+        error: errorMessage,
+        status: 'error',
+      }));
+      // Original image is preserved since we only update imageData on success
+    }
+  };
+
+  const isProcessing = state.status === 'initializing' || state.status === 'processing';
 
   return (
     <div className="flex flex-col items-center gap-6 w-full max-w-2xl mx-auto p-6">
@@ -80,7 +155,11 @@ export default function ImageProcessor() {
       <div className="w-full">
         <label
           htmlFor="image-upload"
-          className="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed border-zinc-300 dark:border-zinc-700 rounded-lg cursor-pointer bg-zinc-50 dark:bg-zinc-900 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
+          className={`flex flex-col items-center justify-center w-full h-32 border-2 border-dashed rounded-lg transition-colors ${
+            isProcessing
+              ? 'border-zinc-200 dark:border-zinc-800 bg-zinc-100 dark:bg-zinc-900 cursor-not-allowed'
+              : 'border-zinc-300 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-900 hover:bg-zinc-100 dark:hover:bg-zinc-800 cursor-pointer'
+          }`}
         >
           <div className="flex flex-col items-center justify-center pt-5 pb-6">
             <svg
@@ -110,7 +189,7 @@ export default function ImageProcessor() {
             className="hidden"
             accept="image/png,image/jpeg,image/gif,image/webp"
             onChange={handleFileSelect}
-            disabled={state.isProcessing}
+            disabled={isProcessing}
           />
         </label>
       </div>
@@ -122,8 +201,8 @@ export default function ImageProcessor() {
         </div>
       )}
 
-      {/* Processing Indicator */}
-      {state.isProcessing && (
+      {/* Loading Indicator */}
+      {isProcessing && (
         <div className="flex items-center gap-2 text-zinc-600 dark:text-zinc-400">
           <svg
             className="animate-spin h-5 w-5"
@@ -144,16 +223,32 @@ export default function ImageProcessor() {
               d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
             />
           </svg>
-          <span>Processing...</span>
+          <span>
+            {state.status === 'initializing' ? 'Initializing image processor...' : 'Processing image...'}
+          </span>
         </div>
       )}
 
-      {/* Image Status */}
-      {state.hasImage && !state.isProcessing && (
-        <div className="w-full p-4 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg">
-          <p className="text-sm text-green-600 dark:text-green-400">
-            Image loaded successfully! Ready for processing.
-          </p>
+      {/* Canvas for Image Display */}
+      {state.hasImage && (
+        <div className="w-full flex flex-col items-center gap-4">
+          <canvas
+            ref={canvasRef}
+            className="max-w-full border border-zinc-200 dark:border-zinc-700 rounded-lg shadow-sm"
+          />
+          
+          {/* Grayscale Button */}
+          <button
+            onClick={handleGrayscale}
+            disabled={isProcessing}
+            className={`px-6 py-2 rounded-lg font-medium transition-colors ${
+              isProcessing
+                ? 'bg-zinc-300 dark:bg-zinc-700 text-zinc-500 dark:text-zinc-400 cursor-not-allowed'
+                : 'bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 hover:bg-zinc-700 dark:hover:bg-zinc-300'
+            }`}
+          >
+            Make Grayscale
+          </button>
         </div>
       )}
     </div>
