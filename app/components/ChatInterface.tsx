@@ -2,7 +2,7 @@
 
 import { useState, FormEvent, ChangeEvent } from 'react';
 import { useChat } from '@ai-sdk/react';
-import { TextStreamChatTransport, UIMessage } from 'ai';
+import { DefaultChatTransport, UIMessage } from 'ai';
 import { ImageState } from '@/lib/types';
 import { getMessageClasses } from '@/lib/chat';
 import LoadingIndicator from './LoadingIndicator';
@@ -12,7 +12,7 @@ interface ChatInterfaceProps {
 }
 
 // Create transport once at module level - body will be passed per-request
-const transport = new TextStreamChatTransport({ api: '/api/chat' });
+const transport = new DefaultChatTransport({ api: '/api/chat' });
 
 export default function ChatInterface({ imageState }: ChatInterfaceProps) {
   const [input, setInput] = useState('');
