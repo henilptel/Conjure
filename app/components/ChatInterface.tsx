@@ -1,6 +1,8 @@
 'use client';
 
 import { useState, FormEvent, ChangeEvent } from 'react';
+import { useChat } from '@ai-sdk/react';
+import { TextStreamChatTransport, UIMessage } from 'ai';
 import { ImageState } from '@/lib/types';
 import { getMessageClasses } from '@/lib/chat';
 import LoadingIndicator from './LoadingIndicator';
@@ -9,16 +11,17 @@ interface ChatInterfaceProps {
   imageState: ImageState;
 }
 
-interface Message {
-  id: string;
-  role: 'user' | 'assistant';
-  content: string;
-}
+// Create transport once at module level - body will be passed per-request
+const transport = new TextStreamChatTransport({ api: '/api/chat' });
 
 export default function ChatInterface({ imageState }: ChatInterfaceProps) {
-  const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
-  const [isLoading, setIsLoading] = useState(false);
+
+  const { messages, sendMessage, status, error } = useChat({
+    transport,
+  });
+
+  const isLoading = status === 'submitted' || status === 'streaming';
 
   const handleInputChange = (e: ChangeEvent<HTMLInputElement>) => {
     setInput(e.target.value);
@@ -29,99 +32,25 @@ export default function ChatInterface({ imageState }: ChatInterfaceProps) {
     
     if (!input.trim() || isLoading) return;
 
-    const userMessage: Message = {
-      id: Date.now().toString(),
-      role: 'user',
-      content: input.trim(),
-    };
-
-    setMessages(prev => [...prev, userMessage]);
+    const messageText = input.trim();
     setInput('');
-    setIsLoading(true);
+    
+    // Pass imageContext in the body option of sendMessage
+    await sendMessage(
+      { text: messageText },
+      { body: { imageContext: imageState } }
+    );
+  };
 
-    // Hoist assistantMessage outside try block so we can reference it in catch
-    const assistantMessageId = (Date.now() + 1).toString();
-    let assistantMessageAdded = false;
-
-    try {
-      const response = await fetch('/api/chat', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          messages: [...messages, userMessage].map(m => ({
-            role: m.role,
-            content: m.content,
-          })),
-          imageContext: imageState,
-        }),
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to get response');
-      }
-
-      const reader = response.body?.getReader();
-      const decoder = new TextDecoder();
-      let assistantContent = '';
-
-      const assistantMessage: Message = {
-        id: assistantMessageId,
-        role: 'assistant',
-        content: '',
-      };
-
-      setMessages(prev => [...prev, assistantMessage]);
-      assistantMessageAdded = true;
-
-      if (reader) {
-        try {
-          while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-
-            const chunk = decoder.decode(value, { stream: true });
-            assistantContent += chunk;
-
-            setMessages(prev => 
-              prev.map(m => 
-                m.id === assistantMessageId 
-                  ? { ...m, content: assistantContent }
-                  : m
-              )
-            );
-          }
-        } catch (streamError) {
-          console.error('Stream reading error:', streamError);
-          throw streamError;
-        }
-      }
-    } catch (error) {
-      console.error('Chat error:', error);
-      const errorContent = 'Sorry, I encountered an error. Please try again.';
-      
-      if (assistantMessageAdded) {
-        // Update the existing orphaned assistant message with error content
-        setMessages(prev => 
-          prev.map(m => 
-            m.id === assistantMessageId 
-              ? { ...m, content: errorContent }
-              : m
-          )
-        );
-      } else {
-        // No assistant message was added yet, so add the error message
-        const errorMessage: Message = {
-          id: assistantMessageId,
-          role: 'assistant',
-          content: errorContent,
-        };
-        setMessages(prev => [...prev, errorMessage]);
-      }
-    } finally {
-      setIsLoading(false);
+  // Helper to extract text content from message parts
+  const getMessageContent = (message: UIMessage): string => {
+    if (!message.parts || message.parts.length === 0) {
+      return '';
     }
+    return message.parts
+      .filter((part): part is { type: 'text'; text: string } => part.type === 'text')
+      .map(part => part.text)
+      .join('');
   };
 
   return (
@@ -146,15 +75,20 @@ export default function ChatInterface({ imageState }: ChatInterfaceProps) {
           messages.map((message) => (
             <div
               key={message.id}
-              className={`max-w-[80%] px-3 py-2 rounded-lg text-sm ${getMessageClasses(message.role)}`}
+              className={`max-w-[80%] px-3 py-2 rounded-lg text-sm ${getMessageClasses(message.role as 'user' | 'assistant')}`}
             >
-              {message.content}
+              {getMessageContent(message)}
             </div>
           ))
         )}
         {isLoading && (
           <div className="flex justify-start">
             <LoadingIndicator message="Thinking..." size="sm" />
+          </div>
+        )}
+        {error && (
+          <div className="text-red-500 text-sm px-3 py-2">
+            Sorry, I encountered an error. Please try again.
           </div>
         )}
       </div>

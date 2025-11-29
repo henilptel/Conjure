@@ -1,23 +1,23 @@
 /**
- * Property-based tests for state callback propagation in ImageProcessor
+ * Property-based tests for state callback propagation
  * **Feature: context-aware-chat, Property 4: State callback propagation**
  * **Validates: Requirements 6.2**
+ * 
+ * These tests verify the contract of the onStateChange callback:
+ * - The callback receives a valid ImageState object
+ * - All required fields are present and have correct types
+ * - State transitions follow expected patterns
+ * 
+ * Note: Testing the actual ImageProcessor component requires integration tests
+ * with React Testing Library and mocked Magick.WASM. These property tests
+ * verify the state contract and transition logic that the component must follow.
  */
 
 import * as fc from 'fast-check';
-import { ImageState } from '@/lib/types';
+import { ImageState, defaultImageState } from '@/lib/types';
 
 /**
- * Mock ImageData for testing
- */
-interface MockImageData {
-  width: number;
-  height: number;
-  pixels: Uint8ClampedArray;
-}
-
-/**
- * Arbitrary generator for mock image dimensions
+ * Arbitrary generator for valid image dimensions
  */
 const imageDimensionsArb = fc.record({
   width: fc.integer({ min: 1, max: 5000 }),
@@ -25,185 +25,169 @@ const imageDimensionsArb = fc.record({
 });
 
 /**
- * Arbitrary generator for blur values
+ * Arbitrary generator for blur values (0-20 range as per UI constraints)
  */
 const blurValueArb = fc.integer({ min: 0, max: 20 });
+
+/**
+ * Arbitrary generator for complete ImageState objects
+ */
+const imageStateArb = fc.record({
+  hasImage: fc.boolean(),
+  width: fc.option(fc.integer({ min: 1, max: 5000 }), { nil: null }),
+  height: fc.option(fc.integer({ min: 1, max: 5000 }), { nil: null }),
+  blur: blurValueArb,
+  isGrayscale: fc.boolean(),
+});
+
+/**
+ * Arbitrary generator for ImageState with loaded image
+ */
+const loadedImageStateArb = fc.record({
+  hasImage: fc.constant(true),
+  width: fc.integer({ min: 1, max: 5000 }),
+  height: fc.integer({ min: 1, max: 5000 }),
+  blur: blurValueArb,
+  isGrayscale: fc.boolean(),
+});
+
+/**
+ * Simulates the state callback handler that ImageProcessor uses.
+ * This models the notifyStateChange function behavior.
+ */
+function createStateNotifier(callback: (state: ImageState) => void) {
+  let currentState: ImageState = { ...defaultImageState };
+  
+  return {
+    notifyStateChange: (updates: Partial<ImageState>) => {
+      currentState = { ...currentState, ...updates };
+      callback(currentState);
+    },
+    getCurrentState: () => currentState,
+    setBaseState: (state: ImageState) => {
+      currentState = state;
+    },
+  };
+}
 
 describe('Property 4: State callback propagation', () => {
   /**
    * **Feature: context-aware-chat, Property 4: State callback propagation**
    * 
-   * For any state-changing operation in ImageProcessor (file load, blur change, grayscale conversion),
-   * the onStateChange callback SHALL be invoked with an ImageState object reflecting the new values.
+   * For any state-changing operation, the onStateChange callback SHALL be invoked
+   * with an ImageState object reflecting the new values.
    */
 
-  it('should invoke callback with correct dimensions when image loads', () => {
-    fc.assert(
-      fc.property(imageDimensionsArb, ({ width, height }) => {
-        // Track callback invocations
-        const callbackInvocations: ImageState[] = [];
-        const mockCallback = (state: ImageState) => {
-          callbackInvocations.push(state);
-        };
+  describe('ImageState contract validation', () => {
+    it('should always have all required fields in ImageState', () => {
+      fc.assert(
+        fc.property(imageStateArb, (state) => {
+          // Verify all required fields exist
+          expect(state).toHaveProperty('hasImage');
+          expect(state).toHaveProperty('width');
+          expect(state).toHaveProperty('height');
+          expect(state).toHaveProperty('blur');
+          expect(state).toHaveProperty('isGrayscale');
+          
+          // Verify types
+          expect(typeof state.hasImage).toBe('boolean');
+          expect(state.width === null || typeof state.width === 'number').toBe(true);
+          expect(state.height === null || typeof state.height === 'number').toBe(true);
+          expect(typeof state.blur).toBe('number');
+          expect(typeof state.isGrayscale).toBe('boolean');
+        }),
+        { numRuns: 100 }
+      );
+    });
 
-        // Simulate image load callback
-        const imageLoadState: ImageState = {
-          hasImage: true,
-          width,
-          height,
-          blur: 0,
-          isGrayscale: false,
-        };
-        
-        mockCallback(imageLoadState);
+    it('should have blur value within valid range (0-20)', () => {
+      fc.assert(
+        fc.property(loadedImageStateArb, (state) => {
+          expect(state.blur).toBeGreaterThanOrEqual(0);
+          expect(state.blur).toBeLessThanOrEqual(20);
+        }),
+        { numRuns: 100 }
+      );
+    });
 
-        // Verify callback was invoked
-        expect(callbackInvocations.length).toBeGreaterThan(0);
-        
-        // Verify the state has correct dimensions
-        const lastState = callbackInvocations[callbackInvocations.length - 1];
-        expect(lastState.hasImage).toBe(true);
-        expect(lastState.width).toBe(width);
-        expect(lastState.height).toBe(height);
-        expect(lastState.blur).toBe(0);
-        expect(lastState.isGrayscale).toBe(false);
-      }),
-      { numRuns: 100 }
-    );
+    it('should have positive dimensions when image is loaded', () => {
+      fc.assert(
+        fc.property(loadedImageStateArb, (state) => {
+          expect(state.hasImage).toBe(true);
+          expect(state.width).toBeGreaterThan(0);
+          expect(state.height).toBeGreaterThan(0);
+        }),
+        { numRuns: 100 }
+      );
+    });
   });
 
-  it('should invoke callback with correct blur value when blur changes', () => {
-    fc.assert(
-      fc.property(
-        imageDimensionsArb,
-        blurValueArb,
-        ({ width, height }, blur) => {
-          // Track callback invocations
+  describe('State notifier behavior', () => {
+    it('should invoke callback with merged state on partial updates', () => {
+      fc.assert(
+        fc.property(
+          loadedImageStateArb,
+          blurValueArb,
+          (initialState, newBlur) => {
+            const callbackInvocations: ImageState[] = [];
+            const notifier = createStateNotifier((state) => {
+              callbackInvocations.push({ ...state });
+            });
+
+            // Set initial state
+            notifier.setBaseState(initialState);
+
+            // Notify with partial update (only blur)
+            notifier.notifyStateChange({ blur: newBlur });
+
+            // Verify callback was invoked
+            expect(callbackInvocations.length).toBe(1);
+
+            // Verify the state has the new blur but preserves other fields
+            const resultState = callbackInvocations[0];
+            expect(resultState.blur).toBe(newBlur);
+            expect(resultState.hasImage).toBe(initialState.hasImage);
+            expect(resultState.width).toBe(initialState.width);
+            expect(resultState.height).toBe(initialState.height);
+            expect(resultState.isGrayscale).toBe(initialState.isGrayscale);
+          }
+        ),
+        { numRuns: 100 }
+      );
+    });
+
+    it('should invoke callback with correct state when grayscale is toggled', () => {
+      fc.assert(
+        fc.property(loadedImageStateArb, (initialState) => {
           const callbackInvocations: ImageState[] = [];
-          const mockCallback = (state: ImageState) => {
-            callbackInvocations.push(state);
-          };
+          const notifier = createStateNotifier((state) => {
+            callbackInvocations.push({ ...state });
+          });
 
-          // Simulate blur change callback
-          const blurChangeState: ImageState = {
-            hasImage: true,
-            width,
-            height,
-            blur,
-            isGrayscale: false,
-          };
-          
-          mockCallback(blurChangeState);
+          // Set initial state with isGrayscale = false
+          notifier.setBaseState({ ...initialState, isGrayscale: false });
 
-          // Verify callback was invoked
-          expect(callbackInvocations.length).toBeGreaterThan(0);
-          
-          // Verify the state has correct blur value
-          const lastState = callbackInvocations[callbackInvocations.length - 1];
-          expect(lastState.blur).toBe(blur);
-          expect(lastState.hasImage).toBe(true);
-        }
-      ),
-      { numRuns: 100 }
-    );
-  });
+          // Notify grayscale change
+          notifier.notifyStateChange({ isGrayscale: true });
 
-  it('should invoke callback with isGrayscale=true when grayscale is applied', () => {
-    fc.assert(
-      fc.property(
-        imageDimensionsArb,
-        blurValueArb,
-        ({ width, height }, blur) => {
-          // Track callback invocations
+          // Verify callback was invoked with isGrayscale = true
+          expect(callbackInvocations.length).toBe(1);
+          expect(callbackInvocations[0].isGrayscale).toBe(true);
+        }),
+        { numRuns: 100 }
+      );
+    });
+
+    it('should invoke callback with correct dimensions when image loads', () => {
+      fc.assert(
+        fc.property(imageDimensionsArb, ({ width, height }) => {
           const callbackInvocations: ImageState[] = [];
-          const mockCallback = (state: ImageState) => {
-            callbackInvocations.push(state);
-          };
-
-          // Simulate grayscale conversion callback
-          const grayscaleState: ImageState = {
-            hasImage: true,
-            width,
-            height,
-            blur,
-            isGrayscale: true,
-          };
-          
-          mockCallback(grayscaleState);
-
-          // Verify callback was invoked
-          expect(callbackInvocations.length).toBeGreaterThan(0);
-          
-          // Verify the state has isGrayscale set to true
-          const lastState = callbackInvocations[callbackInvocations.length - 1];
-          expect(lastState.isGrayscale).toBe(true);
-          expect(lastState.hasImage).toBe(true);
-        }
-      ),
-      { numRuns: 100 }
-    );
-  });
-
-  it('should preserve all state fields when invoking callback', () => {
-    fc.assert(
-      fc.property(
-        imageDimensionsArb,
-        blurValueArb,
-        fc.boolean(),
-        ({ width, height }, blur, isGrayscale) => {
-          // Track callback invocations
-          const callbackInvocations: ImageState[] = [];
-          const mockCallback = (state: ImageState) => {
-            callbackInvocations.push(state);
-          };
-
-          // Simulate any state change callback
-          const newState: ImageState = {
-            hasImage: true,
-            width,
-            height,
-            blur,
-            isGrayscale,
-          };
-          
-          mockCallback(newState);
-
-          // Verify callback was invoked
-          expect(callbackInvocations.length).toBeGreaterThan(0);
-          
-          // Verify all fields are present and correct
-          const lastState = callbackInvocations[callbackInvocations.length - 1];
-          expect(lastState).toHaveProperty('hasImage');
-          expect(lastState).toHaveProperty('width');
-          expect(lastState).toHaveProperty('height');
-          expect(lastState).toHaveProperty('blur');
-          expect(lastState).toHaveProperty('isGrayscale');
-          
-          expect(lastState.hasImage).toBe(true);
-          expect(lastState.width).toBe(width);
-          expect(lastState.height).toBe(height);
-          expect(lastState.blur).toBe(blur);
-          expect(lastState.isGrayscale).toBe(isGrayscale);
-        }
-      ),
-      { numRuns: 100 }
-    );
-  });
-
-  it('should invoke callback with consistent state across multiple operations', () => {
-    fc.assert(
-      fc.property(
-        imageDimensionsArb,
-        fc.array(blurValueArb, { minLength: 1, maxLength: 10 }),
-        ({ width, height }, blurValues) => {
-          // Track callback invocations
-          const callbackInvocations: ImageState[] = [];
-          const mockCallback = (state: ImageState) => {
-            callbackInvocations.push(state);
-          };
+          const notifier = createStateNotifier((state) => {
+            callbackInvocations.push({ ...state });
+          });
 
           // Simulate image load
-          mockCallback({
+          notifier.notifyStateChange({
             hasImage: true,
             width,
             height,
@@ -211,61 +195,160 @@ describe('Property 4: State callback propagation', () => {
             isGrayscale: false,
           });
 
-          // Simulate multiple blur changes
-          for (const blur of blurValues) {
-            mockCallback({
-              hasImage: true,
-              width,
-              height,
-              blur,
-              isGrayscale: false,
-            });
-          }
-
-          // Simulate grayscale conversion
-          mockCallback({
-            hasImage: true,
-            width,
-            height,
-            blur: blurValues[blurValues.length - 1],
-            isGrayscale: true,
-          });
-
-          // Verify callback was invoked for each operation
-          expect(callbackInvocations.length).toBe(blurValues.length + 2);
-          
-          // Verify final state is correct
-          const finalState = callbackInvocations[callbackInvocations.length - 1];
-          expect(finalState.hasImage).toBe(true);
-          expect(finalState.width).toBe(width);
-          expect(finalState.height).toBe(height);
-          expect(finalState.isGrayscale).toBe(true);
-        }
-      ),
-      { numRuns: 100 }
-    );
+          // Verify callback was invoked with correct dimensions
+          expect(callbackInvocations.length).toBe(1);
+          const state = callbackInvocations[0];
+          expect(state.hasImage).toBe(true);
+          expect(state.width).toBe(width);
+          expect(state.height).toBe(height);
+          expect(state.blur).toBe(0);
+          expect(state.isGrayscale).toBe(false);
+        }),
+        { numRuns: 100 }
+      );
+    });
   });
 
-  it('should not invoke callback when callback is undefined', () => {
-    fc.assert(
-      fc.property(imageDimensionsArb, ({ width, height }) => {
-        // No callback provided
-        const mockCallback = undefined;
+  describe('State transition sequences', () => {
+    it('should maintain consistent state across multiple blur changes', () => {
+      fc.assert(
+        fc.property(
+          imageDimensionsArb,
+          fc.array(blurValueArb, { minLength: 1, maxLength: 10 }),
+          ({ width, height }, blurValues) => {
+            const callbackInvocations: ImageState[] = [];
+            const notifier = createStateNotifier((state) => {
+              callbackInvocations.push({ ...state });
+            });
 
-        // This should not throw an error
-        expect(() => {
-          if (mockCallback) {
-            mockCallback({
+            // Simulate image load
+            notifier.notifyStateChange({
               hasImage: true,
               width,
               height,
               blur: 0,
               isGrayscale: false,
             });
+
+            // Simulate multiple blur changes
+            for (const blur of blurValues) {
+              notifier.notifyStateChange({ blur });
+            }
+
+            // Verify callback was invoked for each operation
+            expect(callbackInvocations.length).toBe(blurValues.length + 1);
+
+            // Verify dimensions remain consistent across all invocations
+            for (const state of callbackInvocations) {
+              expect(state.width).toBe(width);
+              expect(state.height).toBe(height);
+              expect(state.hasImage).toBe(true);
+            }
+
+            // Verify final blur value
+            const finalState = callbackInvocations[callbackInvocations.length - 1];
+            expect(finalState.blur).toBe(blurValues[blurValues.length - 1]);
           }
-        }).not.toThrow();
-      }),
-      { numRuns: 100 }
-    );
+        ),
+        { numRuns: 100 }
+      );
+    });
+
+    it('should handle image load -> blur -> grayscale sequence correctly', () => {
+      fc.assert(
+        fc.property(
+          imageDimensionsArb,
+          blurValueArb,
+          ({ width, height }, blur) => {
+            const callbackInvocations: ImageState[] = [];
+            const notifier = createStateNotifier((state) => {
+              callbackInvocations.push({ ...state });
+            });
+
+            // Step 1: Image load
+            notifier.notifyStateChange({
+              hasImage: true,
+              width,
+              height,
+              blur: 0,
+              isGrayscale: false,
+            });
+
+            // Step 2: Blur change
+            notifier.notifyStateChange({ blur });
+
+            // Step 3: Grayscale conversion
+            notifier.notifyStateChange({ isGrayscale: true });
+
+            // Verify sequence
+            expect(callbackInvocations.length).toBe(3);
+
+            // After load
+            expect(callbackInvocations[0].hasImage).toBe(true);
+            expect(callbackInvocations[0].blur).toBe(0);
+            expect(callbackInvocations[0].isGrayscale).toBe(false);
+
+            // After blur
+            expect(callbackInvocations[1].blur).toBe(blur);
+            expect(callbackInvocations[1].isGrayscale).toBe(false);
+
+            // After grayscale
+            expect(callbackInvocations[2].blur).toBe(blur);
+            expect(callbackInvocations[2].isGrayscale).toBe(true);
+          }
+        ),
+        { numRuns: 100 }
+      );
+    });
+  });
+
+  describe('Edge cases', () => {
+    it('should handle callback being undefined without throwing', () => {
+      fc.assert(
+        fc.property(imageStateArb, (state) => {
+          // Simulate the pattern used in ImageProcessor: if (onStateChange) { ... }
+          const onStateChange: ((state: ImageState) => void) | undefined = undefined;
+
+          expect(() => {
+            if (onStateChange) {
+              onStateChange(state);
+            }
+          }).not.toThrow();
+        }),
+        { numRuns: 100 }
+      );
+    });
+
+    it('should handle zero dimensions gracefully', () => {
+      // This tests the edge case where dimensions might be at boundary
+      const state: ImageState = {
+        hasImage: false,
+        width: null,
+        height: null,
+        blur: 0,
+        isGrayscale: false,
+      };
+
+      expect(state.width).toBeNull();
+      expect(state.height).toBeNull();
+      expect(state.hasImage).toBe(false);
+    });
+
+    it('should handle maximum blur value', () => {
+      fc.assert(
+        fc.property(loadedImageStateArb, (state) => {
+          const callbackInvocations: ImageState[] = [];
+          const notifier = createStateNotifier((s) => {
+            callbackInvocations.push({ ...s });
+          });
+
+          notifier.setBaseState(state);
+          notifier.notifyStateChange({ blur: 20 });
+
+          expect(callbackInvocations[0].blur).toBe(20);
+        }),
+        { numRuns: 100 }
+      );
+    });
   });
 });

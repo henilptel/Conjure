@@ -46,10 +46,15 @@ export async function POST(req: Request) {
     return result.toTextStreamResponse();
   } catch (error) {
     console.error('Chat API error:', error);
-    const message = error instanceof Error ? error.message : 'Unknown error';
+    // Distinguish between client and server errors
+    const isClientError = error instanceof SyntaxError; // JSON parse error
+    const status = isClientError ? 400 : 500;
+    const message = isClientError 
+      ? 'Invalid request body' 
+      : 'An error occurred processing your request';
     return new Response(
       JSON.stringify({ error: message }),
-      { status: 400, headers: { 'Content-Type': 'application/json' } }
+      { status, headers: { 'Content-Type': 'application/json' } }
     );
   }
 }
