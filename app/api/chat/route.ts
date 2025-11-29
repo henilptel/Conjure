@@ -1,6 +1,7 @@
 import { createGroq } from '@ai-sdk/groq';
-import { streamText } from 'ai';
-import { buildSystemMessage, parseRequestBody } from '@/lib/chat';
+import { streamText, UIMessage } from 'ai';
+import { buildSystemMessage } from '@/lib/chat';
+import { ImageState } from '@/lib/types';
 
 export async function POST(req: Request) {
   // Check for API key
@@ -13,9 +14,20 @@ export async function POST(req: Request) {
   }
 
   try {
-    // Parse request body
+    // Parse request body - v5 format with UIMessage parts
     const body = await req.json();
-    const { messages, imageContext } = parseRequestBody(body);
+    const { messages, imageContext } = body as { 
+      messages: UIMessage[]; 
+      imageContext: ImageState;
+    };
+
+    if (!Array.isArray(messages)) {
+      throw new Error('Messages must be an array');
+    }
+
+    if (!imageContext || typeof imageContext !== 'object') {
+      throw new Error('imageContext is required');
+    }
 
     // Configure Groq provider
     const groq = createGroq({
@@ -25,15 +37,22 @@ export async function POST(req: Request) {
     // Build system message with image context
     const systemMessage = buildSystemMessage(imageContext);
 
-    // Convert messages to the format expected by the AI SDK
-    // Ensure we only send simple text content
+    // Convert UIMessage parts to simple content format for the model
     const formattedMessages = messages
       .filter(m => m.role === 'user' || m.role === 'assistant')
-      .filter(m => m.content && m.content.trim().length > 0)
-      .map(m => ({
-        role: m.role as 'user' | 'assistant',
-        content: String(m.content),
-      }));
+      .map(m => {
+        // Extract text from parts array (v5 format)
+        const textContent = m.parts
+          ?.filter((p): p is { type: 'text'; text: string } => p.type === 'text')
+          .map(p => p.text)
+          .join('') || '';
+        
+        return {
+          role: m.role as 'user' | 'assistant',
+          content: textContent,
+        };
+      })
+      .filter(m => m.content.trim().length > 0);
 
     // Stream response using llama-3.3-70b-versatile
     const result = streamText({
@@ -42,19 +61,14 @@ export async function POST(req: Request) {
       messages: formattedMessages,
     });
 
-    // Return streamed response
-    return result.toTextStreamResponse();
+    // Return UI message stream response (v5 format)
+    return result.toUIMessageStreamResponse();
   } catch (error) {
     console.error('Chat API error:', error);
-    // Distinguish between client and server errors
-    const isClientError = error instanceof SyntaxError; // JSON parse error
-    const status = isClientError ? 400 : 500;
-    const message = isClientError 
-      ? 'Invalid request body' 
-      : 'An error occurred processing your request';
+    const message = error instanceof Error ? error.message : 'Unknown error';
     return new Response(
       JSON.stringify({ error: message }),
-      { status, headers: { 'Content-Type': 'application/json' } }
+      { status: 400, headers: { 'Content-Type': 'application/json' } }
     );
   }
 }
