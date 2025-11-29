@@ -92,7 +92,7 @@ export function readImageData(data: Uint8Array): Promise<ImageData> {
 /**
  * Converts image data to grayscale using Magick.WASM
  * @param data - Original image data containing originalBytes for re-processing
- * @returns Promise containing grayscale image data
+ * @returns Promise containing grayscale image data with updated originalBytes
  */
 export function convertToGrayscale(data: ImageData): Promise<ImageData> {
   if (!isInitialized) {
@@ -109,13 +109,18 @@ export function convertToGrayscale(data: ImageData): Promise<ImageData> {
         const width = image.width;
         const height = image.height;
 
-        // Write back to RGBA format for canvas rendering
-        image.write(MagickFormat.Rgba, (pixels) => {
-          resolve({ 
-            pixels: new Uint8Array(pixels), 
-            width, 
-            height,
-            originalBytes: data.originalBytes // Preserve original for potential future operations
+        // Write to PNG format to preserve the grayscale state for future operations
+        image.write(MagickFormat.Png, (pngBytes) => {
+          const newOriginalBytes = new Uint8Array(pngBytes);
+          
+          // Write back to RGBA format for canvas rendering
+          image.write(MagickFormat.Rgba, (pixels) => {
+            resolve({ 
+              pixels: new Uint8Array(pixels), 
+              width, 
+              height,
+              originalBytes: newOriginalBytes // Update originalBytes to grayscale version
+            });
           });
         });
       });
@@ -138,7 +143,6 @@ export function blurImage(data: ImageData, radius: number): Promise<ImageData> {
 
   return new Promise((resolve, reject) => {
     try {
-      // Read from original file bytes to prevent compounding effects
       ImageMagick.read(data.originalBytes, (image) => {
         const width = image.width;
         const height = image.height;
@@ -150,17 +154,16 @@ export function blurImage(data: ImageData, radius: number): Promise<ImageData> {
               pixels: new Uint8Array(pixels),
               width,
               height,
-              originalBytes: data.originalBytes // Preserve original for future operations
+              originalBytes: data.originalBytes
             });
           });
           return;
         }
 
-        // Apply Gaussian blur with specified radius
-        // Second parameter (sigma) is set to 0 to let ImageMagick calculate it automatically
-        image.blur(radius, 0);
+        // Apply Gaussian blur - blur(0, sigma) lets ImageMagick auto-calculate kernel size
+        image.blur(0, radius);
 
-        // Write back to RGBA format for canvas rendering
+        // Write to RGBA for canvas rendering
         image.write(MagickFormat.Rgba, (pixels) => {
           resolve({
             pixels: new Uint8Array(pixels),

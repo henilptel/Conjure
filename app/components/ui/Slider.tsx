@@ -1,6 +1,6 @@
 'use client';
 
-import { ChangeEvent } from 'react';
+import { ChangeEvent, useId } from 'react';
 
 export interface SliderProps {
   value: number;
@@ -9,6 +9,7 @@ export interface SliderProps {
   onChange: (value: number) => void;
   label: string;
   disabled?: boolean;
+  id?: string;
 }
 
 export default function Slider({
@@ -18,17 +19,25 @@ export default function Slider({
   onChange,
   label,
   disabled = false,
+  id,
 }: SliderProps) {
+  const generatedId = useId();
+  const inputId = id ?? `slider-${generatedId}`;
+
   const handleChange = (event: ChangeEvent<HTMLInputElement>) => {
     onChange(Number(event.target.value));
   };
 
   return (
     <div className="flex flex-col gap-2 w-full">
-      <label className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
+      <label
+        htmlFor={inputId}
+        className="text-sm font-medium text-zinc-700 dark:text-zinc-300"
+      >
         {label}: {value}
       </label>
       <input
+        id={inputId}
         type="range"
         min={min}
         max={max}
