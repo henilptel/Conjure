@@ -259,17 +259,19 @@ describe('Property 6: Control State Matches Processing State (Extended)', () => 
         
         // Bidirectional: isProcessing <=> all controls disabled
         if (isProcessing) {
+          expect(controlStates.fileInputDisabled).toBe(true);
           expect(controlStates.grayscaleButtonDisabled).toBe(true);
           expect(controlStates.blurSliderDisabled).toBe(true);
         }
-        if (controlStates.grayscaleButtonDisabled && controlStates.blurSliderDisabled) {
+        if (controlStates.fileInputDisabled && controlStates.grayscaleButtonDisabled && controlStates.blurSliderDisabled) {
           expect(isProcessing).toBe(true);
         }
         if (!isProcessing) {
+          expect(controlStates.fileInputDisabled).toBe(false);
           expect(controlStates.grayscaleButtonDisabled).toBe(false);
           expect(controlStates.blurSliderDisabled).toBe(false);
         }
-        if (!controlStates.grayscaleButtonDisabled || !controlStates.blurSliderDisabled) {
+        if (!controlStates.fileInputDisabled || !controlStates.grayscaleButtonDisabled || !controlStates.blurSliderDisabled) {
           expect(isProcessing).toBe(false);
         }
       }),

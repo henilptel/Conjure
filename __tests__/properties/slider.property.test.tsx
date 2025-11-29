@@ -104,8 +104,10 @@ describe('Property 4: Slider onChange Callback', () => {
    * **Validates: Requirements 2.3, 3.2**
    */
   it('should invoke onChange callback with the exact numeric value when slider changes', () => {
-    // Test with specific values to ensure numeric conversion
-    const testValuesArb = fc.integer({ min: 0, max: 100 });
+    // Generate pairs of (initialValue, newValue) where they are different
+    // This ensures the change event will actually fire
+    const initialValue = 50;
+    const testValuesArb = fc.integer({ min: 0, max: 100 }).filter(v => v !== initialValue);
     
     fc.assert(
       fc.property(testValuesArb, (newValue) => {
@@ -115,7 +117,7 @@ describe('Property 4: Slider onChange Callback', () => {
           <Slider 
             min={0} 
             max={100} 
-            value={50} 
+            value={initialValue} 
             label="Test" 
             onChange={mockOnChange} 
           />
