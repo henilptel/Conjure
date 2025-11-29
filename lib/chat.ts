@@ -51,3 +51,15 @@ export function parseRequestBody(body: unknown): { messages: ChatMessage[]; imag
     imageContext: imageContext as ImageState,
   };
 }
+
+/**
+ * Returns CSS classes for message styling based on role.
+ * User messages are styled with blue background and right-aligned.
+ * Assistant messages are styled with zinc background and left-aligned.
+ */
+export function getMessageClasses(role: 'user' | 'assistant' | 'system'): string {
+  if (role === 'user') {
+    return 'bg-blue-600 text-white ml-auto';
+  }
+  return 'bg-zinc-200 dark:bg-zinc-700 text-zinc-900 dark:text-zinc-100 mr-auto';
+}
