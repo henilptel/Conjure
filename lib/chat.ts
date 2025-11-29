@@ -28,8 +28,32 @@ export interface ChatMessage {
 }
 
 /**
+ * Extracts text content from a message.
+ * Handles both legacy format (content string) and AI SDK v5 format (parts array).
+ */
+function extractMessageContent(msg: Record<string, unknown>): string {
+  // Legacy format: content is a string
+  if (typeof msg.content === 'string') {
+    return msg.content;
+  }
+  
+  // AI SDK v5 format: parts array with text parts
+  if (Array.isArray(msg.parts)) {
+    const textParts = msg.parts
+      .filter((part): part is { type: string; text: string } => 
+        part && typeof part === 'object' && part.type === 'text' && typeof part.text === 'string'
+      )
+      .map(part => part.text);
+    return textParts.join('');
+  }
+  
+  return '';
+}
+
+/**
  * Parses and validates the request body.
  * Returns the parsed data or throws an error if invalid.
+ * Supports both legacy message format (content) and AI SDK v5 format (parts).
  */
 export function parseRequestBody(body: unknown): { messages: ChatMessage[]; imageContext: ImageState } {
   if (!body || typeof body !== 'object') {
@@ -42,17 +66,24 @@ export function parseRequestBody(body: unknown): { messages: ChatMessage[]; imag
     throw new Error('Messages must be an array');
   }
 
-  // Validate message structure
+  // Validate and convert message structure
+  const parsedMessages: ChatMessage[] = [];
   for (const msg of messages) {
     if (!msg || typeof msg !== 'object') {
       throw new Error('Invalid message format');
     }
-    const { role, content } = msg as { role?: unknown; content?: unknown };
+    const msgObj = msg as Record<string, unknown>;
+    const { role } = msgObj;
     if (typeof role !== 'string' || !['user', 'assistant', 'system'].includes(role)) {
       throw new Error('Invalid message role');
     }
-    if (typeof content !== 'string') {
-      throw new Error('Invalid message content');
+    
+    const content = extractMessageContent(msgObj);
+    if (content) {
+      parsedMessages.push({
+        role: role as 'user' | 'assistant' | 'system',
+        content,
+      });
     }
   }
 
@@ -79,7 +110,7 @@ export function parseRequestBody(body: unknown): { messages: ChatMessage[]; imag
   }
 
   return {
-    messages: messages as ChatMessage[],
+    messages: parsedMessages,
     imageContext: imageContext as ImageState,
   };
 }

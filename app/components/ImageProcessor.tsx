@@ -104,15 +104,15 @@ export default function ImageProcessor({ onStateChange }: ImageProcessorProps) {
     const source = sourceImageDataRef.current;
     if (!source) return;
 
+    // Increment operation counter to invalidate any in-flight operations
+    const operationId = ++blurOperationRef.current;
+
     // If no blur, just use source directly without processing
     if (blur === 0) {
       setImageData(source);
       setState(prev => ({ ...prev, status: 'complete' }));
       return;
     }
-
-    // Increment operation counter to invalidate any in-flight operations
-    const operationId = ++blurOperationRef.current;
 
     const timeoutId = setTimeout(async () => {
       // Re-check source in case it changed during debounce
