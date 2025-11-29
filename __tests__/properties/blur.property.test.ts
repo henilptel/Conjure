@@ -210,6 +210,11 @@ describe('Property 8: Blur Zero Returns Original', () => {
         expect(result1.originalBytes).toBe(inputData.originalBytes);
         expect(result2.originalBytes).toBe(inputData.originalBytes);
         expect(result3.originalBytes).toBe(inputData.originalBytes);
+        
+        // Verify pixel data remains identical across repeated applications
+        expect(result1.pixels).toEqual(result2.pixels);
+        expect(result2.pixels).toEqual(result3.pixels);
+        expect(result1.pixels).toEqual(result3.pixels);
       }),
       { numRuns: 100 }
     );
