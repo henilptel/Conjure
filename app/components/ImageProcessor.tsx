@@ -1,10 +1,11 @@
 'use client';
 
-import { useState, useRef, ChangeEvent, useLayoutEffect } from 'react';
+import { useState, useRef, ChangeEvent, useLayoutEffect, useEffect } from 'react';
 import { validateImageFile, FileValidationResult } from '@/lib/validation';
-import { initializeMagick, readImageData, convertToGrayscale, ImageData } from '@/lib/magick';
+import { initializeMagick, readImageData, convertToGrayscale, blurImage, ImageData } from '@/lib/magick';
 import { renderImageToCanvas } from '@/lib/canvas';
 import LoadingIndicator from './LoadingIndicator';
+import Slider from './ui/Slider';
 
 type ProcessingStatus = 'idle' | 'initializing' | 'processing' | 'complete' | 'error';
 
@@ -22,6 +23,7 @@ export default function ImageProcessor() {
   });
   
   const [imageData, setImageData] = useState<ImageData | null>(null);
+  const [blur, setBlur] = useState(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
@@ -37,6 +39,46 @@ export default function ImageProcessor() {
       );
     }
   }, [imageData]);
+
+  // Debounced blur processing - applies blur after 300ms of no slider changes
+  useEffect(() => {
+    // Skip if no image data is loaded
+    if (!imageData) {
+      return;
+    }
+
+    // Set up debounce timer
+    const timeoutId = setTimeout(async () => {
+      setState(prev => ({
+        ...prev,
+        error: null,
+        status: 'processing',
+      }));
+
+      try {
+        const blurredData = await blurImage(imageData, blur);
+        setImageData(blurredData);
+        
+        setState(prev => ({
+          ...prev,
+          status: 'complete',
+        }));
+      } catch (err) {
+        const errorMessage = err instanceof Error 
+          ? err.message 
+          : 'Failed to apply blur effect. Please try again.';
+        
+        setState(prev => ({
+          ...prev,
+          error: errorMessage,
+          status: 'error',
+        }));
+      }
+    }, 300);
+
+    // Cleanup: clear timeout if blur changes before 300ms
+    return () => clearTimeout(timeoutId);
+  }, [blur]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleFileSelect = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -223,6 +265,18 @@ export default function ImageProcessor() {
           >
             Make Grayscale
           </button>
+          
+          {/* Blur Slider */}
+          <div className="w-full max-w-xs">
+            <Slider
+              value={blur}
+              min={0}
+              max={20}
+              onChange={setBlur}
+              label="Blur"
+              disabled={isProcessing}
+            />
+          </div>
         </div>
       )}
     </div>
