@@ -4,6 +4,7 @@ import { useState, useRef, ChangeEvent, useLayoutEffect, useEffect, useCallback 
 import { validateImageFile, FileValidationResult } from '@/lib/validation';
 import { initializeMagick, readImageData, convertToGrayscale, blurImage, ImageData } from '@/lib/magick';
 import { renderImageToCanvas } from '@/lib/canvas';
+import { ImageState } from '@/lib/types';
 import LoadingIndicator from './LoadingIndicator';
 import Slider from './ui/Slider';
 
@@ -15,7 +16,11 @@ interface ImageProcessorState {
   hasImage: boolean;
 }
 
-export default function ImageProcessor() {
+interface ImageProcessorProps {
+  onStateChange?: (state: ImageState) => void;
+}
+
+export default function ImageProcessor({ onStateChange }: ImageProcessorProps) {
   const [state, setState] = useState<ImageProcessorState>({
     status: 'idle',
     error: null,
@@ -27,6 +32,7 @@ export default function ImageProcessor() {
   const [sourceImageData, setSourceImageData] = useState<ImageData | null>(null);
   const [imageData, setImageData] = useState<ImageData | null>(null);
   const [blur, setBlur] = useState(0);
+  const [isGrayscale, setIsGrayscale] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   
@@ -37,6 +43,35 @@ export default function ImageProcessor() {
   useEffect(() => {
     sourceImageDataRef.current = sourceImageData;
   }, [sourceImageData]);
+
+  // Helper to notify parent of state changes
+  const notifyStateChange = useCallback((updates: Partial<ImageState>) => {
+    if (onStateChange) {
+      const currentState: ImageState = {
+        hasImage: state.hasImage,
+        width: sourceImageData?.width ?? null,
+        height: sourceImageData?.height ?? null,
+        blur,
+        isGrayscale,
+        ...updates,
+      };
+      onStateChange(currentState);
+    }
+  }, [onStateChange, state.hasImage, sourceImageData, blur, isGrayscale]);
+
+  // Notify parent when blur changes
+  useEffect(() => {
+    if (state.hasImage && sourceImageData && onStateChange) {
+      const currentState: ImageState = {
+        hasImage: state.hasImage,
+        width: sourceImageData.width,
+        height: sourceImageData.height,
+        blur,
+        isGrayscale,
+      };
+      onStateChange(currentState);
+    }
+  }, [blur, state.hasImage, sourceImageData, isGrayscale, onStateChange]);
 
   // Render image to canvas when imageData changes
   useLayoutEffect(() => {
@@ -154,12 +189,22 @@ export default function ImageProcessor() {
       setSourceImageData(data);
       setImageData(data);
       setBlur(0); // Reset blur for new image
+      setIsGrayscale(false); // Reset grayscale for new image
       
       setState(prev => ({
         ...prev,
         hasImage: true,
         status: 'complete',
       }));
+
+      // Notify parent of new image state
+      notifyStateChange({
+        hasImage: true,
+        width: data.width,
+        height: data.height,
+        blur: 0,
+        isGrayscale: false,
+      });
     } catch (err) {
       const errorMessage = err instanceof Error 
         ? err.message 
@@ -188,6 +233,7 @@ export default function ImageProcessor() {
       const grayscaleData = await convertToGrayscale(sourceImageData);
       // Update source to grayscale - blur effect will be re-applied automatically
       setSourceImageData(grayscaleData);
+      setIsGrayscale(true);
       
       // If no blur, also update displayed image directly
       if (blur === 0) {
@@ -195,6 +241,11 @@ export default function ImageProcessor() {
         setState(prev => ({ ...prev, status: 'complete' }));
       }
       // If blur > 0, the blur effect will trigger and update imageData
+
+      // Notify parent of grayscale change
+      notifyStateChange({
+        isGrayscale: true,
+      });
     } catch (err) {
       const errorMessage = err instanceof Error 
         ? err.message 
