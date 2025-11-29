@@ -20,7 +20,7 @@ Most web-based image editors either upload your files to a server or rely on lim
 - **Context-Aware Chat**: Ask questions about your image and get intelligent responses
 - **Real-Time State Awareness**: The AI knows your current blur level, image dimensions, and processing state
 - **Streaming Responses**: Get instant feedback as the AI generates responses
-- **Groq-Powered**: Uses Llama-3.1-70b-versatile for fast, accurate responses
+- **Groq-Powered**: Uses Llama-3.3-70b-versatile for fast, accurate responses
 
 ### Privacy & Performance
 - **Zero Image Uploads**: Your images never leave your browser
@@ -156,7 +156,7 @@ npm test
 
 2. **System Message**: The API route constructs a system message that informs the LLM about your current image state.
 
-3. **Streaming Response**: The Groq API (Llama-3.1-70b-versatile) generates a response that's streamed back in real-time.
+3. **Streaming Response**: The Groq API (Llama-3.3-70b-versatile) generates a response that's streamed back in real-time.
 
 4. **State Awareness**: The AI can answer questions like "What's my current blur level?" or "What are my image dimensions?" accurately based on the injected context.
 
