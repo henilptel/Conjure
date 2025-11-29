@@ -44,3 +44,4 @@ next-env.d.ts
 # kiro
 .kiro/
 samples/
+.vscode/
