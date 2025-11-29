@@ -125,4 +125,55 @@ export function convertToGrayscale(data: ImageData): Promise<ImageData> {
   });
 }
 
+/**
+ * Applies Gaussian blur to an image
+ * @param data - ImageData containing originalBytes for non-destructive editing
+ * @param radius - Blur radius (0-20). A radius of 0 returns the original image unchanged.
+ * @returns Promise<ImageData> with blurred pixels and preserved originalBytes
+ */
+export function blurImage(data: ImageData, radius: number): Promise<ImageData> {
+  if (!isInitialized) {
+    return Promise.reject(new Error('Magick.WASM is not initialized'));
+  }
+
+  return new Promise((resolve, reject) => {
+    try {
+      // Read from original file bytes to prevent compounding effects
+      ImageMagick.read(data.originalBytes, (image) => {
+        const width = image.width;
+        const height = image.height;
+
+        // Handle radius 0 as identity - return original pixels
+        if (radius === 0) {
+          image.write(MagickFormat.Rgba, (pixels) => {
+            resolve({
+              pixels: new Uint8Array(pixels),
+              width,
+              height,
+              originalBytes: data.originalBytes // Preserve original for future operations
+            });
+          });
+          return;
+        }
+
+        // Apply Gaussian blur with specified radius
+        // Second parameter (sigma) is set to 0 to let ImageMagick calculate it automatically
+        image.blur(radius, 0);
+
+        // Write back to RGBA format for canvas rendering
+        image.write(MagickFormat.Rgba, (pixels) => {
+          resolve({
+            pixels: new Uint8Array(pixels),
+            width,
+            height,
+            originalBytes: data.originalBytes // Preserve original for non-destructive editing
+          });
+        });
+      });
+    } catch {
+      reject(new Error('Failed to apply blur effect'));
+    }
+  });
+}
+
 export { ImageMagick, MagickFormat };
