@@ -14,17 +14,17 @@
     - Apply headers to all routes
     - _Requirements: 1.2, 1.3_
 
-- [-] 2. Implement file upload and validation
-  - [ ] 2.1 Create file validation utility
+- [x] 2. Implement file upload and validation
+  - [x] 2.1 Create file validation utility
     - Create `lib/validation.ts` with `validateImageFile` function
     - Accept PNG, JPEG, GIF, and WebP MIME types
     - Return validation result with error message if invalid
     - _Requirements: 2.3, 2.4_
-  - [ ] 2.2 Write property test for file validation
+  - [x] 2.2 Write property test for file validation
     - **Property 2: Non-Image File Rejection**
     - Generate random non-image MIME types and verify rejection
     - **Validates: Requirements 2.3**
-  - [ ] 2.3 Create ImageProcessor client component shell
+  - [x] 2.3 Create ImageProcessor client component shell
     - Create `app/components/ImageProcessor.tsx` as a client component
     - Add file input that accepts image files
     - Implement file selection handler with validation
