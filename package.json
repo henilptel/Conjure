@@ -10,10 +10,13 @@
     "test": "jest"
   },
   "dependencies": {
+    "@ai-sdk/openai": "^2.0.74",
     "@imagemagick/magick-wasm": "^0.0.37",
+    "ai": "^5.0.104",
     "next": "16.0.5",
     "react": "19.2.0",
-    "react-dom": "19.2.0"
+    "react-dom": "19.2.0",
+    "zod": "^4.1.13"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
