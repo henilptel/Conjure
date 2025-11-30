@@ -16,7 +16,7 @@ const imageStateArb = fc.record({
   height: fc.option(fc.integer({ min: 1, max: 10000 }), { nil: null }),
   blur: fc.integer({ min: 0, max: 100 }),
   isGrayscale: fc.boolean(),
-});
+}).filter(state => state.hasImage || (state.width === null && state.height === null));
 
 /**
  * Arbitrary generator for state change operations
@@ -104,8 +104,23 @@ describe('Property 3: ImageContext reflects current state', () => {
           expect(typeof currentState.blur).toBe('number');
           expect(typeof currentState.isGrayscale).toBe('boolean');
           
-          // Verify blur is non-negative
+          // Verify blur is within valid range [0, 100]
           expect(currentState.blur).toBeGreaterThanOrEqual(0);
+          expect(currentState.blur).toBeLessThanOrEqual(100);
+          
+          // Invariant: when hasImage is false, width and height must be null
+          if (!currentState.hasImage) {
+            expect(currentState.width).toBeNull();
+            expect(currentState.height).toBeNull();
+          }
+          
+          // Invariant: when hasImage is true, width and height must be non-null numbers
+          if (currentState.hasImage) {
+            expect(currentState.width).not.toBeNull();
+            expect(currentState.height).not.toBeNull();
+            expect(typeof currentState.width).toBe('number');
+            expect(typeof currentState.height).toBe('number');
+          }
         }
       ),
       { numRuns: 100 }

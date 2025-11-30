@@ -1,38 +1,41 @@
 /**
  * Property-based tests for Effect Application Order
- * **Feature: hud-tool-panel**
+ * **Feature: optimization-architecture, Property 5: Effect order consistency**
+ * **Validates: Requirements 2.4**
  */
 
 import * as fc from 'fast-check';
 import {
-  TOOL_CONFIGS,
-  createToolConfig,
-  type ToolName,
-  type ActiveTool,
-} from '@/lib/types';
+  TOOL_REGISTRY,
+  EFFECT_ORDER,
+  getToolConfig,
+  getAllToolIds,
+  type ToolDefinition,
+} from '@/lib/tools-registry';
+import type { ActiveTool } from '@/lib/types';
 
-// Mock ImageMagick for testing the ordering logic
-// We test that the pipeline sorts tools correctly before application
-
-const validToolNames: ToolName[] = ['blur', 'grayscale', 'sepia', 'contrast'];
-const EFFECT_ORDER = ['blur', 'grayscale', 'sepia', 'contrast'] as const;
+const validToolIds = getAllToolIds();
 
 /**
  * Helper function to sort tools by effect order (same logic as in applyEffectsPipeline)
+ * This mirrors the sorting logic that will be used in the pipeline.
  */
 function sortToolsByEffectOrder(tools: ActiveTool[]): ActiveTool[] {
   return [...tools].sort((a, b) => {
-    const aIndex = EFFECT_ORDER.indexOf(a.id as typeof EFFECT_ORDER[number]);
-    const bIndex = EFFECT_ORDER.indexOf(b.id as typeof EFFECT_ORDER[number]);
+    const aIndex = EFFECT_ORDER.indexOf(a.id);
+    const bIndex = EFFECT_ORDER.indexOf(b.id);
     return aIndex - bIndex;
   });
 }
 
 /**
- * Generate an ActiveTool with a random value within its valid range
+ * Generate an ActiveTool from the registry with a random value within its valid range
  */
-const activeToolWithRandomValueArb = (toolName: ToolName) => {
-  const config = TOOL_CONFIGS[toolName];
+const activeToolFromRegistryArb = (toolId: string) => {
+  const config = TOOL_REGISTRY[toolId];
+  if (!config) {
+    throw new Error(`Tool ${toolId} not found in registry`);
+  }
   return fc.integer({ min: config.min, max: config.max }).map(value => ({
     id: config.id,
     label: config.label,
@@ -43,32 +46,28 @@ const activeToolWithRandomValueArb = (toolName: ToolName) => {
 };
 
 /**
- * Generate a set of unique tools with random values
+ * Generate a set of unique tools from the registry with random values
  */
-const uniqueToolsWithValuesArb = fc.subarray(validToolNames, { minLength: 1, maxLength: 4 })
-  .chain(names => {
-    const toolArbs = names.map(name => activeToolWithRandomValueArb(name));
+const uniqueToolsFromRegistryArb = fc.subarray(validToolIds, { minLength: 1, maxLength: validToolIds.length })
+  .chain(ids => {
+    const toolArbs = ids.map(id => activeToolFromRegistryArb(id));
     return fc.tuple(...toolArbs);
   })
   .map(tools => tools as ActiveTool[]);
 
 /**
- * **Feature: hud-tool-panel, Property 8: Effect Application Order Consistency**
- * **Validates: Requirements 5.3**
+ * **Feature: optimization-architecture, Property 5: Effect order consistency**
+ * **Validates: Requirements 2.4**
  * 
- * For any set of activeTools with the same values applied in any order of state updates,
- * the final rendered image SHALL be identical (effects applied in deterministic order).
- * 
- * We test this by verifying that:
- * 1. Tools are always sorted in the same order regardless of input order
- * 2. The sorted order matches the expected effect order: blur → grayscale → sepia → contrast
+ * For any set of active tools provided in any order, the pipeline should apply 
+ * effects in the order defined by EFFECT_ORDER, producing consistent results.
  */
-describe('Property 8: Effect Application Order Consistency', () => {
+describe('Property 5: Effect order consistency', () => {
   it('tools are sorted in consistent order regardless of input order', () => {
     fc.assert(
       fc.property(
         // Generate tools and two different permutations using fast-check
-        uniqueToolsWithValuesArb.chain(tools => 
+        uniqueToolsFromRegistryArb.chain(tools => 
           fc.tuple(
             fc.constant(tools),
             fc.shuffledSubarray(tools, { minLength: tools.length, maxLength: tools.length }),
@@ -94,17 +93,17 @@ describe('Property 8: Effect Application Order Consistency', () => {
     );
   });
 
-  it('sorted tools follow the expected effect order: blur → grayscale → sepia → contrast', () => {
+  it('sorted tools follow the expected effect order from EFFECT_ORDER', () => {
     fc.assert(
       fc.property(
-        uniqueToolsWithValuesArb,
+        uniqueToolsFromRegistryArb,
         (tools) => {
           const sorted = sortToolsByEffectOrder(tools);
           
-          // Verify the order is correct
+          // Verify the order is correct according to EFFECT_ORDER
           for (let i = 0; i < sorted.length - 1; i++) {
-            const currentIndex = EFFECT_ORDER.indexOf(sorted[i].id as typeof EFFECT_ORDER[number]);
-            const nextIndex = EFFECT_ORDER.indexOf(sorted[i + 1].id as typeof EFFECT_ORDER[number]);
+            const currentIndex = EFFECT_ORDER.indexOf(sorted[i].id);
+            const nextIndex = EFFECT_ORDER.indexOf(sorted[i + 1].id);
             
             // Current tool should come before next tool in the effect order
             expect(currentIndex).toBeLessThan(nextIndex);
@@ -118,19 +117,31 @@ describe('Property 8: Effect Application Order Consistency', () => {
   it('tools with same values produce identical sorted arrays regardless of input permutation', () => {
     fc.assert(
       fc.property(
-        // Generate all 4 tools with specific values
+        // Generate values for all 4 tools from registry
         fc.tuple(
-          fc.integer({ min: 0, max: 20 }),   // blur value
-          fc.integer({ min: 0, max: 100 }),  // grayscale value
-          fc.integer({ min: 0, max: 100 }),  // sepia value
-          fc.integer({ min: -100, max: 100 }) // contrast value
+          fc.integer({ min: TOOL_REGISTRY.blur.min, max: TOOL_REGISTRY.blur.max }),
+          fc.integer({ min: TOOL_REGISTRY.grayscale.min, max: TOOL_REGISTRY.grayscale.max }),
+          fc.integer({ min: TOOL_REGISTRY.sepia.min, max: TOOL_REGISTRY.sepia.max }),
+          fc.integer({ min: TOOL_REGISTRY.contrast.min, max: TOOL_REGISTRY.contrast.max })
         ),
         ([blurVal, grayscaleVal, sepiaVal, contrastVal]) => {
-          // Create tools with these values
-          const blur: ActiveTool = { ...createToolConfig('blur')!, value: blurVal };
-          const grayscale: ActiveTool = { ...createToolConfig('grayscale')!, value: grayscaleVal };
-          const sepia: ActiveTool = { ...createToolConfig('sepia')!, value: sepiaVal };
-          const contrast: ActiveTool = { ...createToolConfig('contrast')!, value: contrastVal };
+          // Create tools with these values from registry
+          const blur: ActiveTool = { 
+            id: 'blur', label: TOOL_REGISTRY.blur.label, value: blurVal,
+            min: TOOL_REGISTRY.blur.min, max: TOOL_REGISTRY.blur.max 
+          };
+          const grayscale: ActiveTool = { 
+            id: 'grayscale', label: TOOL_REGISTRY.grayscale.label, value: grayscaleVal,
+            min: TOOL_REGISTRY.grayscale.min, max: TOOL_REGISTRY.grayscale.max 
+          };
+          const sepia: ActiveTool = { 
+            id: 'sepia', label: TOOL_REGISTRY.sepia.label, value: sepiaVal,
+            min: TOOL_REGISTRY.sepia.min, max: TOOL_REGISTRY.sepia.max 
+          };
+          const contrast: ActiveTool = { 
+            id: 'contrast', label: TOOL_REGISTRY.contrast.label, value: contrastVal,
+            min: TOOL_REGISTRY.contrast.min, max: TOOL_REGISTRY.contrast.max 
+          };
           
           // Different input orders
           const order1 = [blur, grayscale, sepia, contrast];
@@ -149,11 +160,8 @@ describe('Property 8: Effect Application Order Consistency', () => {
           expect(sorted2).toEqual(sorted3);
           expect(sorted3).toEqual(sorted4);
           
-          // And the order should be blur → grayscale → sepia → contrast
-          expect(sorted1[0].id).toBe('blur');
-          expect(sorted1[1].id).toBe('grayscale');
-          expect(sorted1[2].id).toBe('sepia');
-          expect(sorted1[3].id).toBe('contrast');
+          // And the order should match EFFECT_ORDER
+          expect(sorted1.map(t => t.id)).toEqual(EFFECT_ORDER);
         }
       ),
       { numRuns: 100 }
@@ -163,10 +171,19 @@ describe('Property 8: Effect Application Order Consistency', () => {
   it('partial tool sets maintain correct relative order', () => {
     fc.assert(
       fc.property(
-        fc.subarray(validToolNames, { minLength: 2, maxLength: 3 }),
-        (toolNames) => {
-          // Create tools from the subset
-          const tools = toolNames.map(name => createToolConfig(name)!);
+        fc.subarray(validToolIds, { minLength: 2, maxLength: 3 }),
+        (toolIds) => {
+          // Create tools from the subset using registry
+          const tools = toolIds.map(id => {
+            const config = TOOL_REGISTRY[id];
+            return {
+              id: config.id,
+              label: config.label,
+              value: config.defaultValue,
+              min: config.min,
+              max: config.max,
+            };
+          });
           
           // Shuffle and sort
           const shuffled = [...tools].reverse();
@@ -174,8 +191,8 @@ describe('Property 8: Effect Application Order Consistency', () => {
           
           // Verify relative order matches EFFECT_ORDER
           for (let i = 0; i < sorted.length - 1; i++) {
-            const currentEffectIndex = EFFECT_ORDER.indexOf(sorted[i].id as typeof EFFECT_ORDER[number]);
-            const nextEffectIndex = EFFECT_ORDER.indexOf(sorted[i + 1].id as typeof EFFECT_ORDER[number]);
+            const currentEffectIndex = EFFECT_ORDER.indexOf(sorted[i].id);
+            const nextEffectIndex = EFFECT_ORDER.indexOf(sorted[i + 1].id);
             
             expect(currentEffectIndex).toBeLessThan(nextEffectIndex);
           }
@@ -188,9 +205,16 @@ describe('Property 8: Effect Application Order Consistency', () => {
   it('single tool arrays remain unchanged after sorting', () => {
     fc.assert(
       fc.property(
-        fc.constantFrom(...validToolNames),
-        (toolName) => {
-          const tool = createToolConfig(toolName)!;
+        fc.constantFrom(...validToolIds),
+        (toolId) => {
+          const config = TOOL_REGISTRY[toolId];
+          const tool: ActiveTool = {
+            id: config.id,
+            label: config.label,
+            value: config.defaultValue,
+            min: config.min,
+            max: config.max,
+          };
           const sorted = sortToolsByEffectOrder([tool]);
           
           expect(sorted.length).toBe(1);

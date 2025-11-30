@@ -8,10 +8,13 @@ import { render, screen, cleanup } from '@testing-library/react';
 import ToolPanel from '@/app/components/overlay/ToolPanel';
 import type { ActiveTool, ToolName } from '@/lib/types';
 import { TOOL_CONFIGS } from '@/lib/types';
+import { useAppStore } from '@/lib/store';
 
-// Ensure cleanup after each test
+// Ensure cleanup after each test and reset store
 afterEach(() => {
   cleanup();
+  // Reset store to initial state
+  useAppStore.setState({ activeTools: [] });
 });
 
 /**
@@ -51,15 +54,11 @@ describe('Property 6: Empty Tools Hides Panel', () => {
     fc.assert(
       fc.property(fc.constant([]), (emptyTools: ActiveTool[]) => {
         cleanup();
-        const mockOnToolUpdate = jest.fn();
-        const mockOnToolRemove = jest.fn();
+        // Set store state to empty tools
+        useAppStore.setState({ activeTools: emptyTools });
         
         const { container } = render(
-          <ToolPanel
-            tools={emptyTools}
-            onToolUpdate={mockOnToolUpdate}
-            onToolRemove={mockOnToolRemove}
-          />
+          <ToolPanel />
         );
         
         // The component should render nothing (null)
@@ -74,15 +73,11 @@ describe('Property 6: Empty Tools Hides Panel', () => {
     fc.assert(
       fc.property(nonEmptyUniqueToolsArb, (tools) => {
         cleanup();
-        const mockOnToolUpdate = jest.fn();
-        const mockOnToolRemove = jest.fn();
+        // Set store state with the generated tools
+        useAppStore.setState({ activeTools: tools });
         
         const { unmount } = render(
-          <ToolPanel
-            tools={tools}
-            onToolUpdate={mockOnToolUpdate}
-            onToolRemove={mockOnToolRemove}
-          />
+          <ToolPanel />
         );
         
         // The panel should be rendered

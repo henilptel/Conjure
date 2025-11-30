@@ -1,6 +1,6 @@
 /**
  * Unit tests for ChatInterface component
- * Tests empty state, loading state, and message list rendering
+ * Tests empty state rendering
  * _Requirements: 3.1, 3.5, 3.6_
  */
 

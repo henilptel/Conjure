@@ -133,8 +133,12 @@ describe('Property 8: Blur Zero Returns Original', () => {
     // When radius is 0, the function should return pixels derived from
     // originalBytes without any blur transformation applied.
     // This is the identity operation.
+    const outputPixels = new Uint8Array(data.pixels.length);
+    for (let i = 0; i < data.pixels.length; i++) {
+      outputPixels[i] = data.originalBytes[i % data.originalBytes.length];
+    }
     return {
-      pixels: new Uint8Array(data.originalBytes.slice(0, data.pixels.length)), // Derived from originalBytes
+      pixels: outputPixels,
       width: data.width,
       height: data.height,
       originalBytes: data.originalBytes,
