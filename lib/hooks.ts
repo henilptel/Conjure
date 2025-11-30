@@ -5,9 +5,25 @@ import { useRef, useCallback, useEffect } from 'react';
 import { useAppStore } from './store';
 
 /**
+ * Check if the active element is an input that should receive keyboard events
+ */
+function isInputFocused(): boolean {
+  const activeElement = document.activeElement;
+  if (!activeElement) return false;
+  
+  const tagName = activeElement.tagName.toLowerCase();
+  // Check for input, textarea, or contenteditable elements
+  return (
+    tagName === 'input' ||
+    tagName === 'textarea' ||
+    activeElement.getAttribute('contenteditable') === 'true'
+  );
+}
+
+/**
  * Hook for compare mode keyboard handling
  * Listens for Space key press/release to toggle compare mode
- * Only activates when an image is loaded
+ * Only activates when an image is loaded and no input is focused
  * 
  * Requirements: 6.1, 6.2, 6.4
  */
@@ -19,6 +35,9 @@ export function useCompareMode(): void {
     const handleKeyDown = (event: KeyboardEvent) => {
       // Only activate when image is loaded (Requirement 6.4)
       if (!hasImage) return;
+      
+      // Don't trigger compare mode when typing in an input
+      if (isInputFocused()) return;
       
       // Check for Space key
       if (event.code === 'Space') {
@@ -32,6 +51,9 @@ export function useCompareMode(): void {
     const handleKeyUp = (event: KeyboardEvent) => {
       // Only activate when image is loaded (Requirement 6.4)
       if (!hasImage) return;
+      
+      // Don't trigger compare mode when typing in an input
+      if (isInputFocused()) return;
       
       // Check for Space key
       if (event.code === 'Space') {

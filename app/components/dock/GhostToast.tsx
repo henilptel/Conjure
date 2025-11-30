@@ -92,19 +92,22 @@ export default function GhostToast({
   onDismiss,
   autoDismissMs = DEFAULT_AUTO_DISMISS_MS,
 }: GhostToastProps) {
+  if (messages.length === 0) return null;
+  
   return (
     <div
-      className="fixed bottom-28 left-1/2 -translate-x-1/2 z-50 flex flex-col gap-2 items-center"
+      className="fixed bottom-28 left-1/2 -translate-x-1/2 z-50 flex flex-col-reverse gap-2 items-center pointer-events-none"
       data-testid="ghost-toast-container"
     >
       <AnimatePresence mode="popLayout">
         {messages.map((message) => (
-          <ToastItem
-            key={message.id}
-            message={message}
-            onDismiss={onDismiss}
-            autoDismissMs={autoDismissMs}
-          />
+          <div key={message.id} className="pointer-events-auto">
+            <ToastItem
+              message={message}
+              onDismiss={onDismiss}
+              autoDismissMs={autoDismissMs}
+            />
+          </div>
         ))}
       </AnimatePresence>
     </div>

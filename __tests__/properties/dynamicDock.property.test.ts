@@ -17,7 +17,6 @@ import {
   initialDockState,
   DockLocalState,
   DockAction,
-  DOCK_TOOLS,
 } from '@/app/components/dock/DynamicDock';
 import { TOOL_REGISTRY } from '@/lib/tools-registry';
 
@@ -306,11 +305,6 @@ describe('Property 9: Toast Queue Order', () => {
 // ============================================================================
 
 /**
- * Generate a valid tool ID from DOCK_TOOLS
- */
-const dockToolIdArb = fc.constantFrom(...DOCK_TOOLS.map(t => t.id));
-
-/**
  * Generate a valid tool ID from TOOL_REGISTRY
  */
 const registeredToolIdArb = fc.constantFrom(...Object.keys(TOOL_REGISTRY));
@@ -349,15 +343,6 @@ const idleDockStateArb: fc.Arbitrary<DockLocalState> = fc.constant({
   mode: 'IDLE' as const,
   activeTool: null,
   toastQueue: [],
-});
-
-/**
- * Generate a dock state in ACTIVE_TOOL mode
- */
-const activeToolDockStateArb: fc.Arbitrary<DockLocalState> = fc.record({
-  mode: fc.constant('ACTIVE_TOOL' as const),
-  activeTool: dockToolIdArb,
-  toastQueue: toastQueueArb,
 });
 
 /**
@@ -433,77 +418,10 @@ describe('Property 1: Dock Visibility Matches Image State', () => {
 });
 
 // ============================================================================
-// Property 2: Tool Selection State Transition
+// Property 2: Tool Selection (Moved to EffectsFAB/ToolBrowser)
 // ============================================================================
-
-/**
- * **Feature: dynamic-dock, Property 2: Tool Selection State Transition**
- * **Validates: Requirements 2.1**
- * 
- * For any tool icon click in IDLE state, the dock SHALL transition to 
- * ACTIVE_TOOL state with that specific tool selected.
- */
-describe('Property 2: Tool Selection State Transition', () => {
-  it('SELECT_TOOL action transitions from IDLE to ACTIVE_TOOL with correct tool', () => {
-    fc.assert(
-      fc.property(
-        idleDockStateArb,
-        dockToolIdArb,
-        (initialState, toolId) => {
-          const action: DockAction = { type: 'SELECT_TOOL', toolId };
-          const newState = dockReducer(initialState, action);
-          
-          // Should transition to ACTIVE_TOOL mode
-          expect(newState.mode).toBe('ACTIVE_TOOL');
-          // Should have the selected tool as activeTool
-          expect(newState.activeTool).toBe(toolId);
-        }
-      ),
-      { numRuns: 100 }
-    );
-  });
-
-  it('SELECT_TOOL preserves toast queue', () => {
-    fc.assert(
-      fc.property(
-        toastQueueArb,
-        dockToolIdArb,
-        (toastQueue, toolId) => {
-          const initialState: DockLocalState = {
-            mode: 'IDLE',
-            activeTool: null,
-            toastQueue,
-          };
-          const action: DockAction = { type: 'SELECT_TOOL', toolId };
-          const newState = dockReducer(initialState, action);
-          
-          // Toast queue should be preserved
-          expect(newState.toastQueue).toEqual(toastQueue);
-        }
-      ),
-      { numRuns: 100 }
-    );
-  });
-
-  it('all DOCK_TOOLS can be selected', () => {
-    fc.assert(
-      fc.property(
-        idleDockStateArb,
-        (initialState) => {
-          // Every tool in DOCK_TOOLS should be selectable
-          for (const tool of DOCK_TOOLS) {
-            const action: DockAction = { type: 'SELECT_TOOL', toolId: tool.id };
-            const newState = dockReducer(initialState, action);
-            
-            expect(newState.mode).toBe('ACTIVE_TOOL');
-            expect(newState.activeTool).toBe(tool.id);
-          }
-        }
-      ),
-      { numRuns: 100 }
-    );
-  });
-});
+// Note: Tool selection is now handled by EffectsFAB and ToolBrowser components.
+// The DynamicDock is now focused on AI chat functionality only.
 
 // ============================================================================
 // Property 5: Sparkle Enters AI Mode
@@ -588,127 +506,10 @@ describe('Property 5: Sparkle Enters AI Mode', () => {
 
 
 // ============================================================================
-// Property 3: Close Tool Returns to IDLE
+// Property 3 & 4: Tool Management (Moved to EffectsFAB/ToolBrowser)
 // ============================================================================
-
-/**
- * **Feature: dynamic-dock, Property 3: Close Tool Returns to IDLE**
- * **Validates: Requirements 2.2**
- * 
- * For any ACTIVE_TOOL state, the CLOSE_TOOL action SHALL return to IDLE state.
- * Note: Values are now applied in real-time with debouncing, so there's no
- * separate apply/cancel flow.
- */
-describe('Property 3: Close Tool Returns to IDLE', () => {
-  it('CLOSE_TOOL transitions from ACTIVE_TOOL to IDLE', () => {
-    fc.assert(
-      fc.property(
-        activeToolDockStateArb,
-        (initialState) => {
-          const action: DockAction = { type: 'CLOSE_TOOL' };
-          const newState = dockReducer(initialState, action);
-          
-          // Should transition to IDLE mode
-          expect(newState.mode).toBe('IDLE');
-          // activeTool should be cleared
-          expect(newState.activeTool).toBeNull();
-        }
-      ),
-      { numRuns: 100 }
-    );
-  });
-
-  it('CLOSE_TOOL preserves toast queue', () => {
-    fc.assert(
-      fc.property(
-        activeToolDockStateArb,
-        (initialState) => {
-          const action: DockAction = { type: 'CLOSE_TOOL' };
-          const newState = dockReducer(initialState, action);
-          
-          // Toast queue should be preserved
-          expect(newState.toastQueue).toEqual(initialState.toastQueue);
-        }
-      ),
-      { numRuns: 100 }
-    );
-  });
-
-  it('full tool flow: SELECT_TOOL -> CLOSE_TOOL returns to IDLE', () => {
-    fc.assert(
-      fc.property(
-        dockToolIdArb,
-        (toolId) => {
-          // Simulate the flow: SELECT_TOOL -> CLOSE_TOOL
-          let state = dockReducer(initialDockState, { type: 'SELECT_TOOL', toolId });
-          
-          // Should be in ACTIVE_TOOL mode
-          expect(state.mode).toBe('ACTIVE_TOOL');
-          expect(state.activeTool).toBe(toolId);
-          
-          // Close the tool
-          state = dockReducer(state, { type: 'CLOSE_TOOL' });
-          expect(state.mode).toBe('IDLE');
-          expect(state.activeTool).toBeNull();
-        }
-      ),
-      { numRuns: 100 }
-    );
-  });
-});
-
-// ============================================================================
-// Property 4: Real-time Debounced Updates (Behavioral Note)
-// ============================================================================
-
-/**
- * **Feature: dynamic-dock, Property 4: Real-time Debounced Updates**
- * **Validates: Requirements 2.2**
- * 
- * Note: The actual debouncing behavior is tested at the component level.
- * The reducer no longer handles pending values - values are applied directly
- * to the store via debounced callbacks. This test validates the state
- * transitions remain correct without pending value management.
- */
-describe('Property 4: State Transitions Without Pending Values', () => {
-  it('SELECT_TOOL does not require pending value management', () => {
-    fc.assert(
-      fc.property(
-        dockToolIdArb,
-        (toolId) => {
-          const state = dockReducer(initialDockState, { type: 'SELECT_TOOL', toolId });
-          
-          // State should only track mode and activeTool
-          expect(state.mode).toBe('ACTIVE_TOOL');
-          expect(state.activeTool).toBe(toolId);
-          // No pendingValue property should exist
-          expect('pendingValue' in state).toBe(false);
-        }
-      ),
-      { numRuns: 100 }
-    );
-  });
-
-  it('switching tools directly works without closing first', () => {
-    fc.assert(
-      fc.property(
-        dockToolIdArb,
-        dockToolIdArb,
-        (toolId1, toolId2) => {
-          // Select first tool
-          let state = dockReducer(initialDockState, { type: 'SELECT_TOOL', toolId: toolId1 });
-          expect(state.activeTool).toBe(toolId1);
-          
-          // Select second tool directly (without closing)
-          state = dockReducer(state, { type: 'SELECT_TOOL', toolId: toolId2 });
-          expect(state.activeTool).toBe(toolId2);
-          expect(state.mode).toBe('ACTIVE_TOOL');
-        }
-      ),
-      { numRuns: 100 }
-    );
-  });
-});
+// Note: Tool management is now handled by EffectsFAB and ToolBrowser components.
+// The DynamicDock is now focused on AI chat functionality only.
 
 
 // ============================================================================
@@ -793,130 +594,11 @@ describe('Property 6: Escape Exits AI Mode', () => {
 });
 
 // ============================================================================
-// Property 8: AI Tool Call Triggers Active Tool
+// Property 8: AI Tool Call (Simplified)
 // ============================================================================
-
-/**
- * **Feature: dynamic-dock, Property 8: AI Tool Call Triggers Active Tool**
- * **Validates: Requirements 4.3**
- * 
- * For any AI show_tools response, the dock SHALL transition to ACTIVE_TOOL 
- * state with the specified tool and initial value.
- */
-describe('Property 8: AI Tool Call Triggers Active Tool', () => {
-  it('AI_TOOL_CALL action transitions to ACTIVE_TOOL with specified tool', () => {
-    fc.assert(
-      fc.property(
-        aiModeDockStateArb,
-        dockToolIdArb,
-        fc.integer({ min: 0, max: 100 }),
-        (initialState, toolId, value) => {
-          const action: DockAction = { type: 'AI_TOOL_CALL', toolId, value };
-          const newState = dockReducer(initialState, action);
-          
-          // Should transition to ACTIVE_TOOL mode
-          expect(newState.mode).toBe('ACTIVE_TOOL');
-          // Should have the specified tool as activeTool
-          expect(newState.activeTool).toBe(toolId);
-        }
-      ),
-      { numRuns: 100 }
-    );
-  });
-
-  it('AI_TOOL_CALL preserves toast queue', () => {
-    fc.assert(
-      fc.property(
-        aiModeDockStateArb,
-        dockToolIdArb,
-        fc.integer({ min: 0, max: 100 }),
-        (initialState, toolId, value) => {
-          const action: DockAction = { type: 'AI_TOOL_CALL', toolId, value };
-          const newState = dockReducer(initialState, action);
-          
-          // Toast queue should be preserved
-          expect(newState.toastQueue).toEqual(initialState.toastQueue);
-        }
-      ),
-      { numRuns: 100 }
-    );
-  });
-
-  it('AI_TOOL_CALL works from any dock state', () => {
-    fc.assert(
-      fc.property(
-        fc.oneof(idleDockStateArb, activeToolDockStateArb, aiModeDockStateArb),
-        dockToolIdArb,
-        fc.integer({ min: 0, max: 100 }),
-        (initialState, toolId, value) => {
-          const action: DockAction = { type: 'AI_TOOL_CALL', toolId, value };
-          const newState = dockReducer(initialState, action);
-          
-          // Should always transition to ACTIVE_TOOL mode regardless of initial state
-          expect(newState.mode).toBe('ACTIVE_TOOL');
-          expect(newState.activeTool).toBe(toolId);
-        }
-      ),
-      { numRuns: 100 }
-    );
-  });
-
-  it('AI_TOOL_CALL and SELECT_TOOL both set activeTool', () => {
-    fc.assert(
-      fc.property(
-        dockToolIdArb,
-        fc.integer({ min: 0, max: 100 }),
-        (toolId, value) => {
-          // Compare AI_TOOL_CALL vs SELECT_TOOL behavior
-          const aiToolCallState = dockReducer(initialDockState, { 
-            type: 'AI_TOOL_CALL', 
-            toolId, 
-            value 
-          });
-          const selectToolState = dockReducer(initialDockState, { 
-            type: 'SELECT_TOOL', 
-            toolId 
-          });
-          
-          // Both should set the same activeTool
-          expect(aiToolCallState.activeTool).toBe(toolId);
-          expect(selectToolState.activeTool).toBe(toolId);
-          
-          // Both should be in ACTIVE_TOOL mode
-          expect(aiToolCallState.mode).toBe('ACTIVE_TOOL');
-          expect(selectToolState.mode).toBe('ACTIVE_TOOL');
-        }
-      ),
-      { numRuns: 100 }
-    );
-  });
-
-  it('full AI flow: ENTER_AI_MODE -> AI_TOOL_CALL -> CLOSE_TOOL', () => {
-    fc.assert(
-      fc.property(
-        idleDockStateArb,
-        dockToolIdArb,
-        fc.integer({ min: 0, max: 100 }),
-        (initialState, toolId, value) => {
-          // Enter AI mode
-          let state = dockReducer(initialState, { type: 'ENTER_AI_MODE' });
-          expect(state.mode).toBe('AI_MODE');
-          
-          // AI responds with tool call
-          state = dockReducer(state, { type: 'AI_TOOL_CALL', toolId, value });
-          expect(state.mode).toBe('ACTIVE_TOOL');
-          expect(state.activeTool).toBe(toolId);
-          
-          // User closes the tool (value already applied via debounce)
-          state = dockReducer(state, { type: 'CLOSE_TOOL' });
-          expect(state.mode).toBe('IDLE');
-          expect(state.activeTool).toBeNull();
-        }
-      ),
-      { numRuns: 100 }
-    );
-  });
-});
+// Note: AI tool calls now add tools directly to the store via addTool().
+// The dock no longer transitions to ACTIVE_TOOL mode - tools are managed
+// by the EffectsFAB and ActiveToolsPanel components.
 
 
 // ============================================================================

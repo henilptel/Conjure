@@ -11,7 +11,6 @@ import { useAppStore } from '@/lib/store';
 import { useCompareMode } from '@/lib/hooks';
 import { cn } from '@/lib/utils';
 import LoadingIndicator from './LoadingIndicator';
-import ToolPanel from './overlay/ToolPanel';
 
 type ProcessingStatus = 'idle' | 'initializing' | 'processing' | 'complete' | 'error';
 
@@ -369,10 +368,7 @@ export default function ImageProcessor() {
         )}
       </AnimatePresence>
 
-      {/* ToolPanel - positioned absolute bottom-center (Requirements: 3.5) */}
-      {state.hasImage && (
-        <ToolPanel disabled={isProcessing} />
-      )}
+      {/* Note: ToolPanel removed - DynamicDock now handles tool controls */}
 
       {/* Reset Button - positioned at bottom left */}
       {state.hasImage && activeTools.length > 0 && (
