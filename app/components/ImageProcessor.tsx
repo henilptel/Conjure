@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, ChangeEvent, useLayoutEffect, useEffect, useCallback } from 'react';
+import { useState, useRef, ChangeEvent, useLayoutEffect, useEffect } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Upload } from 'lucide-react';
@@ -10,7 +10,6 @@ import { renderImageToCanvas } from '@/lib/canvas';
 import { useAppStore } from '@/lib/store';
 import { cn } from '@/lib/utils';
 import LoadingIndicator from './LoadingIndicator';
-import Slider from './ui/Slider';
 import ToolPanel from './overlay/ToolPanel';
 
 type ProcessingStatus = 'idle' | 'initializing' | 'processing' | 'complete' | 'error';
@@ -65,11 +64,6 @@ export default function ImageProcessor() {
   
   // imageData: the displayed image (processed with effects)
   const [imageData, setImageData] = useState<ImageData | null>(null);
-  const [blur, setBlur] = useState(0);
-  // TODO: isGrayscale tracks whether grayscale has been applied for UI feedback.
-  // Future use: display indicator badge, persist state across sessions, or
-  // commit grayscale to base image for permanent effect.
-  const [isGrayscale, setIsGrayscale] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   
@@ -131,66 +125,25 @@ export default function ImageProcessor() {
       return () => clearTimeout(timeoutId);
     }
 
-    // No activeTools - use local blur slider if needed
-    if (blur === 0) {
-      // No effects to apply, show original
-      // Schedule via setTimeout so cleanup can cancel it
-      const timeoutId = setTimeout(async () => {
-        if (pipelineOperationRef.current !== operationId) return;
-        if (!engineRef.current?.hasImage()) return;
-        
-        try {
-          const originalData = await engineRef.current.process([]);
-          if (pipelineOperationRef.current === operationId) {
-            setImageData({ ...originalData });
-            setState(prev => ({ ...prev, status: 'complete' }));
-            setProcessingStatus('complete');
-          }
-        } catch {
-          // Ignore errors for original display
-        }
-      }, 0);
-      
-      return () => clearTimeout(timeoutId);
-    }
-
-    // Apply local blur when no activeTools
-    // Reduced debounce from 300ms to 50ms (slider-performance Requirements: 4.3)
+    // No activeTools - show original image
     const timeoutId = setTimeout(async () => {
       if (pipelineOperationRef.current !== operationId) return;
       if (!engineRef.current?.hasImage()) return;
-
-      setState(prev => ({ ...prev, error: null, status: 'processing' }));
-      setProcessingStatus('processing');
-
+      
       try {
-        // Create a temporary blur tool for processing
-        const blurTool = { id: 'blur', label: 'Blur', value: blur, min: 0, max: 20 };
-        const blurredData = await engineRef.current.process([blurTool]);
-        
+        const originalData = await engineRef.current.process([]);
         if (pipelineOperationRef.current === operationId) {
-          setImageData({ ...blurredData });
+          setImageData({ ...originalData });
           setState(prev => ({ ...prev, status: 'complete' }));
           setProcessingStatus('complete');
         }
-      } catch (err) {
-        if (pipelineOperationRef.current === operationId) {
-          const errorMessage = err instanceof Error 
-            ? err.message 
-            : 'Failed to apply blur effect. Please try again.';
-          setState(prev => ({ ...prev, error: errorMessage, status: 'error' }));
-          setProcessingStatus('error');
-        }
+      } catch {
+        // Ignore errors for original display
       }
-    }, 50);
-
+    }, 0);
+    
     return () => clearTimeout(timeoutId);
-  }, [blur, activeTools, setProcessingStatus]);
-
-  // Handler for blur changes
-  const handleBlurChange = useCallback((value: number) => {
-    setBlur(value);
-  }, []);
+  }, [activeTools, setProcessingStatus]);
 
 
   const handleFileSelect = async (event: ChangeEvent<HTMLInputElement>) => {
@@ -248,8 +201,6 @@ export default function ImageProcessor() {
       // Load image using ImageEngine - decodes once (Requirements: 3.5)
       const data = await engineRef.current.loadImage(uint8Array);
       setImageData(data);
-      setBlur(0); // Reset blur for new image
-      setIsGrayscale(false); // Reset grayscale for new image
       
       setState(prev => ({
         ...prev,
@@ -268,48 +219,6 @@ export default function ImageProcessor() {
       const errorMessage = err instanceof Error 
         ? err.message 
         : 'Failed to process the image. Please try again.';
-      
-      setState(prev => ({
-        ...prev,
-        error: errorMessage,
-        status: 'error',
-      }));
-      setProcessingStatus('error');
-    }
-  };
-
-  const handleGrayscale = async () => {
-    const engine = engineRef.current;
-    if (!engine || !engine.hasImage()) {
-      return;
-    }
-
-    setState(prev => ({
-      ...prev,
-      error: null,
-      status: 'processing',
-    }));
-    setProcessingStatus('processing');
-
-    try {
-      // engine.process() is non-destructive: it applies effects to a copy of the
-      // cached pixel data and returns new ImageData without modifying the source.
-      // Note: This grayscale effect is temporary - subsequent pipeline runs with
-      // different activeTools will overwrite this result. To make grayscale
-      // permanent, you would need to commit the processed result back to the
-      // engine's cached pixels (not currently implemented).
-      const grayscaleTool = { id: 'grayscale', label: 'Grayscale', value: 100, min: 0, max: 100 };
-      const grayscaleData = await engine.process([grayscaleTool]);
-      
-      setImageData(grayscaleData);
-      setIsGrayscale(true);
-      
-      setState(prev => ({ ...prev, status: 'complete' }));
-      setProcessingStatus('complete');
-    } catch (err) {
-      const errorMessage = err instanceof Error 
-        ? err.message 
-        : 'Failed to convert image. Please try again.';
       
       setState(prev => ({
         ...prev,
@@ -417,39 +326,6 @@ export default function ImageProcessor() {
       {/* ToolPanel - positioned absolute bottom-center (Requirements: 3.5) */}
       {state.hasImage && (
         <ToolPanel disabled={isProcessing} />
-      )}
-
-      {/* Grayscale Button - positioned at bottom left, responsive */}
-      {state.hasImage && (
-        <div className="absolute bottom-4 left-4 md:bottom-6 md:left-6 flex flex-col gap-3">
-          <button
-            onClick={handleGrayscale}
-            disabled={isProcessing}
-            className={cn(
-              "px-3 py-1.5 md:px-4 md:py-2 rounded-xl font-medium transition-colors text-sm md:text-base",
-              "backdrop-blur-md border border-white/10",
-              isProcessing
-                ? "bg-black/20 text-zinc-500 cursor-not-allowed"
-                : "bg-black/40 text-zinc-200 hover:bg-black/60"
-            )}
-          >
-            Make Grayscale
-          </button>
-          
-          {/* Blur Slider - hidden when activeTools contains blur (HUD panel takes precedence) */}
-          {!activeTools.some(t => t.id === 'blur') && (
-            <div className="w-40 md:w-48 p-2 md:p-3 backdrop-blur-md bg-black/40 border border-white/10 rounded-xl">
-              <Slider
-                value={blur}
-                min={0}
-                max={20}
-                onChange={handleBlurChange}
-                label="Blur"
-                disabled={isProcessing}
-              />
-            </div>
-          )}
-        </div>
       )}
     </div>
   );
