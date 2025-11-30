@@ -31,14 +31,26 @@ const blurValueArb = fc.integer({ min: 0, max: 20 });
 
 /**
  * Arbitrary generator for complete ImageState objects
+ * When hasImage is true, width and height are non-null integers
+ * When hasImage is false, width and height are null
  */
-const imageStateArb = fc.record({
-  hasImage: fc.boolean(),
-  width: fc.option(fc.integer({ min: 1, max: 5000 }), { nil: null }),
-  height: fc.option(fc.integer({ min: 1, max: 5000 }), { nil: null }),
-  blur: blurValueArb,
-  isGrayscale: fc.boolean(),
-});
+const imageStateArb: fc.Arbitrary<ImageState> = fc.boolean().chain((hasImage) =>
+  hasImage
+    ? fc.record({
+        hasImage: fc.constant(true),
+        width: fc.integer({ min: 1, max: 5000 }),
+        height: fc.integer({ min: 1, max: 5000 }),
+        blur: blurValueArb,
+        isGrayscale: fc.boolean(),
+      })
+    : fc.record({
+        hasImage: fc.constant(false),
+        width: fc.constant(null),
+        height: fc.constant(null),
+        blur: blurValueArb,
+        isGrayscale: fc.boolean(),
+      })
+);
 
 /**
  * Arbitrary generator for ImageState with loaded image
@@ -319,8 +331,8 @@ describe('Property 4: State callback propagation', () => {
       );
     });
 
-    it('should handle zero dimensions gracefully', () => {
-      // This tests the edge case where dimensions might be at boundary
+    it('should handle null dimensions for unloaded state', () => {
+      // This tests the edge case where no image is loaded and dimensions are null
       const state: ImageState = {
         hasImage: false,
         width: null,

@@ -100,9 +100,21 @@ describe('Property 4: Slider onChange Callback', () => {
    * **Feature: blur-slider-controls, Property 4: Slider onChange Callback**
    * 
    * For any Slider component, when a change event occurs with a new value, 
-   * the onChange callback SHALL be invoked with that exact value.
+   * the onChange callback SHALL be invoked with that exact value after debounce.
    * **Validates: Requirements 2.3, 3.2**
+   * 
+   * Note: Slider now uses debouncing (slider-performance spec), so we need to
+   * advance timers to trigger the callback.
    */
+  
+  beforeEach(() => {
+    jest.useFakeTimers();
+  });
+  
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+  
   it('should invoke onChange callback with the exact numeric value when slider changes', () => {
     // Generate pairs of (initialValue, newValue) where they are different
     // This ensures the change event will actually fire
@@ -125,6 +137,9 @@ describe('Property 4: Slider onChange Callback', () => {
         
         const input = screen.getByRole('slider');
         fireEvent.change(input, { target: { value: String(newValue) } });
+        
+        // Run all pending timers to trigger debounced callback
+        jest.runAllTimers();
         
         // Verify onChange was called with a number, not a string
         expect(mockOnChange).toHaveBeenCalledWith(newValue);

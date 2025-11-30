@@ -1,12 +1,16 @@
 'use client';
 
-import { useState, useRef, ChangeEvent, useLayoutEffect, useEffect, useCallback } from 'react';
+import { useState, useRef, ChangeEvent, useLayoutEffect, useEffect } from 'react';
+import { useShallow } from 'zustand/react/shallow';
+import { motion, AnimatePresence } from 'framer-motion';
+import { Upload } from 'lucide-react';
 import { validateImageFile, FileValidationResult } from '@/lib/validation';
-import { initializeMagick, readImageData, convertToGrayscale, blurImage, ImageData } from '@/lib/magick';
+import { initializeMagick, ImageEngine, ImageData } from '@/lib/magick';
 import { renderImageToCanvas } from '@/lib/canvas';
-import { ImageState } from '@/lib/types';
+import { useAppStore } from '@/lib/store';
+import { cn } from '@/lib/utils';
 import LoadingIndicator from './LoadingIndicator';
-import Slider from './ui/Slider';
+import ToolPanel from './overlay/ToolPanel';
 
 type ProcessingStatus = 'idle' | 'initializing' | 'processing' | 'complete' | 'error';
 
@@ -16,62 +20,55 @@ interface ImageProcessorState {
   hasImage: boolean;
 }
 
-interface ImageProcessorProps {
-  onStateChange?: (state: ImageState) => void;
-}
+// Drop Zone animation variants (Framer Motion) - Requirements: 3.1, 3.2
+const dropZoneVariants = {
+  initial: { scale: 1, opacity: 0.6 },
+  animate: { 
+    scale: [1, 1.02, 1],
+    opacity: [0.6, 0.8, 0.6],
+    transition: { duration: 2, repeat: Infinity, ease: 'easeInOut' as const }
+  }
+};
 
-export default function ImageProcessor({ onStateChange }: ImageProcessorProps) {
+/**
+ * ImageProcessor component - uses Zustand store for state management
+ * and ImageEngine for optimized image processing.
+ * 
+ * Uses selective Zustand subscriptions to prevent unnecessary re-renders.
+ * 
+ * Requirements: 1.6, 1.7, 3.4, 3.5, 3.6, slider-performance 3.1, 3.2
+ */
+export default function ImageProcessor() {
+  // Selective subscriptions to Zustand store to prevent unnecessary re-renders
+  // (slider-performance Requirements: 3.1, 3.2)
+  
+  // Subscribe only to activeTools for the processing effect
+  const activeTools = useAppStore((state) => state.activeTools);
+  
+  // Subscribe to actions separately (these are stable references)
+  const { setImageState, setProcessingStatus } = useAppStore(
+    useShallow((state) => ({
+      setImageState: state.setImageState,
+      setProcessingStatus: state.setProcessingStatus,
+    }))
+  );
+  
   const [state, setState] = useState<ImageProcessorState>({
     status: 'idle',
     error: null,
     hasImage: false,
   });
   
-  // sourceImageData: the base image (after grayscale or other non-blur transforms)
-  // imageData: the displayed image (sourceImageData + blur applied)
-  const [sourceImageData, setSourceImageData] = useState<ImageData | null>(null);
+  // ImageEngine instance for optimized processing (Requirements: 3.4)
+  const engineRef = useRef<ImageEngine | null>(null);
+  
+  // imageData: the displayed image (processed with effects)
   const [imageData, setImageData] = useState<ImageData | null>(null);
-  const [blur, setBlur] = useState(0);
-  const [isGrayscale, setIsGrayscale] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   
-  // Ref to track source for blur operations
-  const sourceImageDataRef = useRef<ImageData | null>(null);
-  
-  // Keep the ref in sync with state
-  useEffect(() => {
-    sourceImageDataRef.current = sourceImageData;
-  }, [sourceImageData]);
-
-  // Helper to notify parent of state changes
-  const notifyStateChange = useCallback((updates: Partial<ImageState>) => {
-    if (onStateChange) {
-      const currentState: ImageState = {
-        hasImage: state.hasImage,
-        width: sourceImageData?.width ?? null,
-        height: sourceImageData?.height ?? null,
-        blur,
-        isGrayscale,
-        ...updates,
-      };
-      onStateChange(currentState);
-    }
-  }, [onStateChange, state.hasImage, sourceImageData, blur, isGrayscale]);
-
-  // Notify parent when blur changes
-  useEffect(() => {
-    if (state.hasImage && sourceImageData && onStateChange) {
-      const currentState: ImageState = {
-        hasImage: state.hasImage,
-        width: sourceImageData.width,
-        height: sourceImageData.height,
-        blur,
-        isGrayscale,
-      };
-      onStateChange(currentState);
-    }
-  }, [blur, state.hasImage, sourceImageData, isGrayscale, onStateChange]);
+  // Operation counter for race condition prevention
+  const pipelineOperationRef = useRef(0);
 
   // Render image to canvas when imageData changes
   useLayoutEffect(() => {
@@ -85,60 +82,69 @@ export default function ImageProcessor({ onStateChange }: ImageProcessorProps) {
     }
   }, [imageData]);
 
-  // Operation counter for race condition prevention
-  const blurOperationRef = useRef(0);
 
-  // Apply blur to source image - memoized to avoid recreating on every render
-  const applyBlur = useCallback(async (source: ImageData, blurRadius: number, operationId: number) => {
-    const blurredData = await blurImage(source, blurRadius);
-    
-    // Only apply if this is still the latest operation
-    if (blurOperationRef.current === operationId) {
-      setImageData({ ...blurredData });
-      setState(prev => ({ ...prev, status: 'complete' }));
-    }
-  }, []);
-
-  // Debounced blur processing - always applies blur from sourceImageData
+  // Unified effect pipeline - handles activeTools processing via ImageEngine
+  // When activeTools change, process through the engine (Requirements: 3.6)
   useEffect(() => {
-    const source = sourceImageDataRef.current;
-    if (!source) return;
+    const engine = engineRef.current;
+    if (!engine || !engine.hasImage()) return;
 
     // Increment operation counter to invalidate any in-flight operations
-    const operationId = ++blurOperationRef.current;
+    const operationId = ++pipelineOperationRef.current;
 
-    // If no blur, just use source directly without processing
-    if (blur === 0) {
-      setImageData(source);
-      setState(prev => ({ ...prev, status: 'complete' }));
-      return;
+    // If activeTools is non-empty, use the ImageEngine for processing
+    // Reduced debounce from 300ms to 50ms since input is now debounced at Slider level
+    // (slider-performance Requirements: 4.3)
+    if (activeTools.length > 0) {
+      const timeoutId = setTimeout(async () => {
+        if (pipelineOperationRef.current !== operationId) return;
+        if (!engineRef.current?.hasImage()) return;
+
+        setState(prev => ({ ...prev, error: null, status: 'processing' }));
+        setProcessingStatus('processing');
+
+        try {
+          const processedData = await engineRef.current.process(activeTools);
+          
+          if (pipelineOperationRef.current === operationId) {
+            setImageData({ ...processedData });
+            setState(prev => ({ ...prev, status: 'complete' }));
+            setProcessingStatus('complete');
+          }
+        } catch (err) {
+          if (pipelineOperationRef.current === operationId) {
+            const errorMessage = err instanceof Error 
+              ? err.message 
+              : 'Failed to apply effects. Please try again.';
+            setState(prev => ({ ...prev, error: errorMessage, status: 'error' }));
+            setProcessingStatus('error');
+          }
+        }
+      }, 50);
+
+      return () => clearTimeout(timeoutId);
     }
 
+    // No activeTools - show original image
     const timeoutId = setTimeout(async () => {
-      // Re-check source in case it changed during debounce
-      const currentSource = sourceImageDataRef.current;
-      if (!currentSource) return;
+      if (pipelineOperationRef.current !== operationId) return;
+      if (!engineRef.current?.hasImage()) return;
       
-      // Skip if operation was superseded
-      if (blurOperationRef.current !== operationId) return;
-
-      setState(prev => ({ ...prev, error: null, status: 'processing' }));
-
       try {
-        await applyBlur(currentSource, blur, operationId);
-      } catch (err) {
-        // Only show error if this is still the latest operation
-        if (blurOperationRef.current === operationId) {
-          const errorMessage = err instanceof Error 
-            ? err.message 
-            : 'Failed to apply blur effect. Please try again.';
-          setState(prev => ({ ...prev, error: errorMessage, status: 'error' }));
+        const originalData = await engineRef.current.process([]);
+        if (pipelineOperationRef.current === operationId) {
+          setImageData({ ...originalData });
+          setState(prev => ({ ...prev, status: 'complete' }));
+          setProcessingStatus('complete');
         }
+      } catch {
+        // Ignore errors for original display
       }
-    }, 300);
-
+    }, 0);
+    
     return () => clearTimeout(timeoutId);
-  }, [blur, sourceImageData, applyBlur]);
+  }, [activeTools, setProcessingStatus]);
+
 
   const handleFileSelect = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -157,6 +163,7 @@ export default function ImageProcessor({ onStateChange }: ImageProcessorProps) {
         hasImage: false,
         status: 'error',
       }));
+      setProcessingStatus('error');
       // Reset the file input
       if (fileInputRef.current) {
         fileInputRef.current.value = '';
@@ -170,6 +177,7 @@ export default function ImageProcessor({ onStateChange }: ImageProcessorProps) {
       error: null,
       status: 'initializing',
     }));
+    setProcessingStatus('initializing');
 
     try {
       // Initialize Magick.WASM
@@ -179,31 +187,33 @@ export default function ImageProcessor({ onStateChange }: ImageProcessorProps) {
         ...prev,
         status: 'processing',
       }));
+      setProcessingStatus('processing');
 
       // Read the file into memory
       const arrayBuffer = await file.arrayBuffer();
       const uint8Array = new Uint8Array(arrayBuffer);
       
-      // Read image data using Magick.WASM
-      const data = await readImageData(uint8Array);
-      setSourceImageData(data);
+      // Create ImageEngine instance if not exists (Requirements: 3.4)
+      if (!engineRef.current) {
+        engineRef.current = new ImageEngine();
+      }
+      
+      // Load image using ImageEngine - decodes once (Requirements: 3.5)
+      const data = await engineRef.current.loadImage(uint8Array);
       setImageData(data);
-      setBlur(0); // Reset blur for new image
-      setIsGrayscale(false); // Reset grayscale for new image
       
       setState(prev => ({
         ...prev,
         hasImage: true,
         status: 'complete',
       }));
+      setProcessingStatus('complete');
 
-      // Notify parent of new image state
-      notifyStateChange({
+      // Update Zustand store with new image state
+      setImageState({
         hasImage: true,
         width: data.width,
         height: data.height,
-        blur: 0,
-        isGrayscale: false,
       });
     } catch (err) {
       const errorMessage = err instanceof Error 
@@ -215,89 +225,81 @@ export default function ImageProcessor({ onStateChange }: ImageProcessorProps) {
         error: errorMessage,
         status: 'error',
       }));
+      setProcessingStatus('error');
     }
   };
 
-  const handleGrayscale = async () => {
-    if (!sourceImageData) {
-      return;
-    }
-
-    setState(prev => ({
-      ...prev,
-      error: null,
-      status: 'processing',
-    }));
-
-    try {
-      const grayscaleData = await convertToGrayscale(sourceImageData);
-      // Update source to grayscale - blur effect will be re-applied automatically
-      setSourceImageData(grayscaleData);
-      setIsGrayscale(true);
-      
-      // If no blur, also update displayed image directly
-      if (blur === 0) {
-        setImageData(grayscaleData);
-        setState(prev => ({ ...prev, status: 'complete' }));
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (engineRef.current) {
+        engineRef.current.dispose();
+        engineRef.current = null;
       }
-      // If blur > 0, the blur effect will trigger and update imageData
-
-      // Notify parent of grayscale change
-      notifyStateChange({
-        isGrayscale: true,
-      });
-    } catch (err) {
-      const errorMessage = err instanceof Error 
-        ? err.message 
-        : 'Failed to convert image. Please try again.';
-      
-      setState(prev => ({
-        ...prev,
-        error: errorMessage,
-        status: 'error',
-      }));
-    }
-  };
+    };
+  }, []);
 
   const isProcessing = state.status === 'initializing' || state.status === 'processing';
 
+
   return (
-    <div className="flex flex-col items-center gap-6 w-full max-w-2xl mx-auto p-6">
-      <h2 className="text-2xl font-semibold text-zinc-900 dark:text-zinc-100">
-        Image Processor
-      </h2>
-      
-      {/* File Upload Input */}
-      <div className="w-full">
-        <label
+    <div className="absolute inset-0 z-0 flex items-center justify-center">
+      {/* Error Display - positioned at top center */}
+      <AnimatePresence>
+        {state.error && (
+          <motion.div 
+            initial={{ opacity: 0, y: -20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -20 }}
+            className="absolute top-6 left-1/2 -translate-x-1/2 z-10 p-4 bg-red-900/40 backdrop-blur-md border border-red-500/30 rounded-xl"
+          >
+            <p className="text-sm text-red-400">{state.error}</p>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Loading Indicator - centered overlay */}
+      <AnimatePresence>
+        {isProcessing && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="absolute inset-0 z-20 flex items-center justify-center bg-black/20 backdrop-blur-sm"
+          >
+            <LoadingIndicator 
+              message={state.status === 'initializing' ? 'Initializing image processor...' : 'Processing image...'}
+              size="md"
+            />
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Animated Drop Zone - shown when no image (Requirements: 3.1, 3.2) */}
+      {!state.hasImage && (
+        <motion.label
           htmlFor="image-upload"
-          className={`flex flex-col items-center justify-center w-full h-32 border-2 border-dashed rounded-lg transition-colors ${
-            isProcessing
-              ? 'border-zinc-200 dark:border-zinc-800 bg-zinc-100 dark:bg-zinc-900 cursor-not-allowed'
-              : 'border-zinc-300 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-900 hover:bg-zinc-100 dark:hover:bg-zinc-800 cursor-pointer'
-          }`}
+          variants={dropZoneVariants}
+          initial="initial"
+          animate="animate"
+          className={cn(
+            "flex flex-col items-center justify-center",
+            "w-[90vw] h-[60vw] max-w-[400px] max-h-[300px]",
+            "border-2 border-dashed border-white/20 rounded-2xl",
+            "bg-white/5 backdrop-blur-sm",
+            "cursor-pointer transition-colors",
+            "hover:border-white/40 hover:bg-white/10",
+            isProcessing && "cursor-not-allowed opacity-50"
+          )}
+          data-testid="drop-zone"
         >
-          <div className="flex flex-col items-center justify-center pt-5 pb-6">
-            <svg
-              className="w-8 h-8 mb-3 text-zinc-500 dark:text-zinc-400"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"
-              />
-            </svg>
-            <p className="mb-2 text-sm text-zinc-500 dark:text-zinc-400">
-              <span className="font-semibold">Click to upload</span> or drag and drop
-            </p>
-            <p className="text-xs text-zinc-500 dark:text-zinc-400">
-              PNG, JPEG, GIF, or WebP
-            </p>
-          </div>
+          <Upload className="w-10 h-10 md:w-12 md:h-12 mb-3 md:mb-4 text-zinc-400" />
+          <p className="mb-2 text-base md:text-lg text-zinc-300 text-center px-4">
+            <span className="font-semibold">Click to upload</span> or drag and drop
+          </p>
+          <p className="text-xs md:text-sm text-zinc-500">
+            PNG, JPEG, GIF, or WebP
+          </p>
           <input
             ref={fileInputRef}
             id="image-upload"
@@ -307,57 +309,23 @@ export default function ImageProcessor({ onStateChange }: ImageProcessorProps) {
             onChange={handleFileSelect}
             disabled={isProcessing}
           />
-        </label>
-      </div>
-
-      {/* Error Display */}
-      {state.error && (
-        <div className="w-full p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg">
-          <p className="text-sm text-red-600 dark:text-red-400">{state.error}</p>
-        </div>
+        </motion.label>
       )}
 
-      {/* Loading Indicator */}
-      {isProcessing && (
-        <LoadingIndicator 
-          message={state.status === 'initializing' ? 'Initializing image processor...' : 'Processing image...'}
-          size="md"
-        />
-      )}
-
-      {/* Canvas for Image Display */}
+      {/* Canvas for Image Display - centered, floating appearance (Requirements: 3.3, 3.4) */}
       {state.hasImage && (
-        <div className="w-full flex flex-col items-center gap-4">
+        <div className="flex items-center justify-center h-full w-full p-8">
           <canvas
             ref={canvasRef}
-            className="max-w-full border border-zinc-200 dark:border-zinc-700 rounded-lg shadow-sm"
+            className="max-w-full max-h-full"
+            data-testid="image-canvas"
           />
-          
-          {/* Grayscale Button */}
-          <button
-            onClick={handleGrayscale}
-            disabled={isProcessing}
-            className={`px-6 py-2 rounded-lg font-medium transition-colors ${
-              isProcessing
-                ? 'bg-zinc-300 dark:bg-zinc-700 text-zinc-500 dark:text-zinc-400 cursor-not-allowed'
-                : 'bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 hover:bg-zinc-700 dark:hover:bg-zinc-300'
-            }`}
-          >
-            Make Grayscale
-          </button>
-          
-          {/* Blur Slider */}
-          <div className="w-full max-w-xs">
-            <Slider
-              value={blur}
-              min={0}
-              max={20}
-              onChange={setBlur}
-              label="Blur"
-              disabled={isProcessing}
-            />
-          </div>
         </div>
+      )}
+
+      {/* ToolPanel - positioned absolute bottom-center (Requirements: 3.5) */}
+      {state.hasImage && (
+        <ToolPanel disabled={isProcessing} />
       )}
     </div>
   );

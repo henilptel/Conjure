@@ -2,6 +2,48 @@
  * Shared types for the MagickFlow image editor
  */
 
+import { TOOL_REGISTRY, getToolConfig } from './tools-registry';
+
+/**
+ * Represents a single tool control in the HUD panel.
+ * Each tool has a unique identifier, display label, current value,
+ * and min/max constraints for the slider.
+ */
+export interface ActiveTool {
+  /** Unique identifier for the tool */
+  id: string;
+  /** Display label shown in the UI */
+  label: string;
+  /** Current slider value */
+  value: number;
+  /** Minimum allowed value */
+  min: number;
+  /** Maximum allowed value */
+  max: number;
+}
+
+/**
+ * Configuration type for tool definitions including default value
+ */
+export type ToolConfig = Omit<ActiveTool, 'value'> & { defaultValue: number };
+
+/**
+ * Valid tool names that can be used with the HUD panel
+ * Now dynamically derived from TOOL_REGISTRY
+ */
+export type ToolName = keyof typeof TOOL_REGISTRY;
+
+/**
+ * @deprecated Use TOOL_REGISTRY from tools-registry.ts instead
+ * Kept for backwards compatibility with existing tests
+ */
+export const TOOL_CONFIGS: Record<string, ToolConfig> = Object.fromEntries(
+  Object.entries(TOOL_REGISTRY).map(([id, def]) => [
+    id,
+    { id: def.id, label: def.label, min: def.min, max: def.max, defaultValue: def.defaultValue }
+  ])
+);
+
 /**
  * Represents the current state of the image being processed.
  * This state is shared between ImageProcessor and ChatInterface
@@ -18,6 +60,8 @@ export interface ImageState {
   blur: number;
   /** Whether grayscale conversion has been applied */
   isGrayscale: boolean;
+  /** Active tools currently displayed in the HUD panel */
+  activeTools: ActiveTool[];
 }
 
 /**
@@ -29,4 +73,169 @@ export const defaultImageState: ImageState = {
   height: null,
   blur: 0,
   isGrayscale: false,
+  activeTools: [],
 };
+
+/**
+ * Checks if a string is a valid tool name by checking TOOL_REGISTRY
+ */
+export function isValidToolName(name: string): boolean {
+  return getToolConfig(name) !== undefined;
+}
+
+/**
+ * Tool input from AI with optional initial value
+ */
+export interface ToolInput {
+  name: string;
+  initial_value?: number;
+}
+
+/**
+ * Creates an ActiveTool from a tool name using TOOL_REGISTRY.
+ * Returns null if the tool name is not valid.
+ * 
+ * @param toolName - The name of the tool to create
+ * @param initialValue - Optional initial value to use instead of default
+ * @returns ActiveTool with specified or default value, or null if invalid
+ */
+export function createToolConfig(toolName: string, initialValue?: number): ActiveTool | null {
+  const config = getToolConfig(toolName);
+  if (!config) {
+    return null;
+  }
+  
+  // Use initialValue if provided, otherwise use defaultValue
+  // Clamp to min/max range
+  const value = initialValue !== undefined && !isNaN(initialValue)
+    ? Math.max(config.min, Math.min(config.max, initialValue))
+    : config.defaultValue;
+    
+  return {
+    id: config.id,
+    label: config.label,
+    value,
+    min: config.min,
+    max: config.max,
+  };
+}
+
+/**
+ * Adds new tools to the active tools array.
+ * Filters out duplicates (tools already present and within newToolNames) and invalid tool names.
+ * Preserves existing tools and their current values.
+ * 
+ * @param currentTools - The current array of active tools
+ * @param newToolNames - Array of tool names to add
+ * @returns New array with existing tools preserved and new tools added
+ * 
+ * Requirements: 1.1, 1.3
+ */
+export function addTools(currentTools: ActiveTool[], newToolNames: string[]): ActiveTool[] {
+  const existingIds = new Set(currentTools.map(t => t.id));
+  
+  // Deduplicate newToolNames and filter out already existing tools
+  const uniqueNewNames = [...new Set(newToolNames)].filter(name => !existingIds.has(name));
+  
+  const newTools = uniqueNewNames
+    .map(name => createToolConfig(name))    // Create tool configs
+    .filter((tool): tool is ActiveTool => tool !== null); // Filter out invalid tools
+  
+  return [...currentTools, ...newTools];
+}
+
+/**
+ * Adds new tools with initial values to the active tools array.
+ * Filters out duplicates and invalid tool names.
+ * If a tool already exists, updates its value to the new initial value.
+ * Preserves the original order of existing tools, appending new tools at the end.
+ * 
+ * @param currentTools - The current array of active tools
+ * @param toolInputs - Array of tool inputs with names and optional initial values
+ * @returns New array with tools added/updated, preserving original order
+ * 
+ * Requirements: 1.1, 1.3
+ */
+export function addToolsWithValues(currentTools: ActiveTool[], toolInputs: ToolInput[]): ActiveTool[] {
+  // Build a map of toolInputs by name (first occurrence wins for duplicates)
+  const inputsMap = new Map<string, ToolInput>();
+  for (const input of toolInputs) {
+    if (!inputsMap.has(input.name)) {
+      inputsMap.set(input.name, input);
+    }
+  }
+  
+  const result: ActiveTool[] = [];
+  
+  // Iterate currentTools in original order, updating if input exists
+  for (const tool of currentTools) {
+    const input = inputsMap.get(tool.id);
+    if (input) {
+      // Update existing tool with new value if provided
+      if (input.initial_value !== undefined && !isNaN(input.initial_value)) {
+        const clampedValue = Math.max(tool.min, Math.min(tool.max, input.initial_value));
+        result.push({ ...tool, value: clampedValue });
+      } else {
+        result.push(tool);
+      }
+      // Remove matched input from map
+      inputsMap.delete(tool.id);
+    } else {
+      // Keep original tool unchanged
+      result.push(tool);
+    }
+  }
+  
+  // Append any remaining new tools from the map
+  for (const input of inputsMap.values()) {
+    const newTool = createToolConfig(input.name, input.initial_value);
+    if (newTool) {
+      result.push(newTool);
+    }
+  }
+  
+  return result;
+}
+
+/**
+ * Updates the value of a specific tool in the active tools array.
+ * Clamps the value to the tool's min/max range.
+ * Returns a new array with only the specified tool updated.
+ * 
+ * @param tools - The current array of active tools
+ * @param toolId - The id of the tool to update
+ * @param newValue - The new value to set
+ * @returns New array with the specified tool's value updated
+ * 
+ * Requirements: 5.1
+ */
+export function updateToolValue(tools: ActiveTool[], toolId: string, newValue: number): ActiveTool[] {
+  return tools.map(tool => {
+    if (tool.id !== toolId) {
+      return tool;
+    }
+    // Reject NaN values
+    if (isNaN(newValue)) {
+      return tool;
+    }
+    // Clamp value to tool's min/max range
+    const clampedValue = Math.max(tool.min, Math.min(tool.max, newValue));
+    return { ...tool, value: clampedValue };
+  });
+}
+
+
+/**
+ * Removes a tool from the active tools array.
+ * Returns a new array without the specified tool.
+ * If the tool id doesn't exist, returns the original array unchanged.
+ * 
+ * @param tools - The current array of active tools
+ * @param toolId - The id of the tool to remove
+ * @returns New array without the specified tool
+ * 
+ * Requirements: 4.2
+ */
+export function removeTool(tools: ActiveTool[], toolId: string): ActiveTool[] {
+  return tools.filter(tool => tool.id !== toolId);
+}
