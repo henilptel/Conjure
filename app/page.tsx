@@ -1,44 +1,14 @@
 'use client';
 
-import { useState, useCallback } from 'react';
 import ImageProcessor from './components/ImageProcessor';
 import ChatInterface from './components/ChatInterface';
-import { 
-  ImageState, 
-  defaultImageState, 
-  ActiveTool, 
-  ToolInput,
-  addToolsWithValues, 
-  updateToolValue, 
-  removeTool 
-} from '@/lib/types';
 
+/**
+ * Main page component - minimal orchestration with Zustand store
+ * State management moved to lib/store.ts
+ * Requirements: 1.6, 1.7
+ */
 export default function Home() {
-  const [imageState, setImageState] = useState<ImageState>(defaultImageState);
-  const [activeTools, setActiveTools] = useState<ActiveTool[]>([]);
-
-  const handleStateChange = useCallback((newState: ImageState) => {
-    setImageState(newState);
-  }, []);
-
-  // Handle tool call from AI - adds new tools with initial values
-  // Requirements: 1.1
-  const handleToolCall = useCallback((toolInputs: ToolInput[]) => {
-    setActiveTools(prev => addToolsWithValues(prev, toolInputs));
-  }, []);
-
-  // Handle tool value update - uses updateToolValue function with clamping
-  // Requirements: 5.1
-  const handleToolUpdate = useCallback((id: string, value: number) => {
-    setActiveTools(prev => updateToolValue(prev, id, value));
-  }, []);
-
-  // Handle tool removal - uses removeTool function
-  // Requirements: 4.2
-  const handleToolRemove = useCallback((id: string) => {
-    setActiveTools(prev => removeTool(prev, id));
-  }, []);
-
   return (
     <div className="min-h-screen bg-gradient-to-b from-zinc-50 to-zinc-100 dark:from-zinc-950 dark:to-zinc-900 py-12 px-4">
       <header className="text-center mb-10">
@@ -54,20 +24,12 @@ export default function Home() {
         <div className="flex flex-col lg:flex-row gap-6">
           {/* Main Content - Image Processor */}
           <main className="flex-1">
-            <ImageProcessor 
-              onStateChange={handleStateChange}
-              activeTools={activeTools}
-              onToolUpdate={handleToolUpdate}
-              onToolRemove={handleToolRemove}
-            />
+            <ImageProcessor />
           </main>
           
-          {/* Chat Sidebar */}
-          <aside className="lg:w-96 h-[600px]">
-            <ChatInterface 
-              imageState={imageState}
-              onToolCall={handleToolCall}
-            />
+          {/* Chat Sidebar - responsive height with viewport-relative sizing */}
+          <aside className="lg:w-96 h-[50vh] min-h-[300px] max-h-[80vh] lg:h-[70vh] lg:min-h-[400px] lg:max-h-[800px] overflow-auto">
+            <ChatInterface />
           </aside>
         </div>
         

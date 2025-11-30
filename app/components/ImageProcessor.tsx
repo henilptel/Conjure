@@ -1,10 +1,11 @@
 'use client';
 
 import { useState, useRef, ChangeEvent, useLayoutEffect, useEffect, useCallback } from 'react';
+import { useShallow } from 'zustand/react/shallow';
 import { validateImageFile, FileValidationResult } from '@/lib/validation';
-import { initializeMagick, readImageData, convertToGrayscale, blurImage, applyEffectsPipeline, ImageData } from '@/lib/magick';
+import { initializeMagick, ImageEngine, ImageData } from '@/lib/magick';
 import { renderImageToCanvas } from '@/lib/canvas';
-import { ImageState, ActiveTool } from '@/lib/types';
+import { useAppStore } from '@/lib/store';
 import LoadingIndicator from './LoadingIndicator';
 import Slider from './ui/Slider';
 import ToolPanel from './overlay/ToolPanel';
@@ -17,63 +18,50 @@ interface ImageProcessorState {
   hasImage: boolean;
 }
 
-interface ImageProcessorProps {
-  onStateChange?: (state: ImageState) => void;
-  activeTools?: ActiveTool[];
-  onToolUpdate?: (id: string, value: number) => void;
-  onToolRemove?: (id: string) => void;
-}
-
-export default function ImageProcessor({ 
-  onStateChange,
-  activeTools = [],
-  onToolUpdate,
-  onToolRemove,
-}: ImageProcessorProps) {
+/**
+ * ImageProcessor component - uses Zustand store for state management
+ * and ImageEngine for optimized image processing.
+ * 
+ * Uses selective Zustand subscriptions to prevent unnecessary re-renders.
+ * 
+ * Requirements: 1.6, 1.7, 3.4, 3.5, 3.6, slider-performance 3.1, 3.2
+ */
+export default function ImageProcessor() {
+  // Selective subscriptions to Zustand store to prevent unnecessary re-renders
+  // (slider-performance Requirements: 3.1, 3.2)
+  
+  // Subscribe only to activeTools for the processing effect
+  const activeTools = useAppStore((state) => state.activeTools);
+  
+  // Subscribe to actions separately (these are stable references)
+  const { setImageState, setProcessingStatus } = useAppStore(
+    useShallow((state) => ({
+      setImageState: state.setImageState,
+      setProcessingStatus: state.setProcessingStatus,
+    }))
+  );
+  
   const [state, setState] = useState<ImageProcessorState>({
     status: 'idle',
     error: null,
     hasImage: false,
   });
   
-  // sourceImageData: the base image (after grayscale or other non-blur transforms)
-  // imageData: the displayed image (sourceImageData + blur applied)
-  const [sourceImageData, setSourceImageData] = useState<ImageData | null>(null);
+  // ImageEngine instance for optimized processing (Requirements: 3.4)
+  const engineRef = useRef<ImageEngine | null>(null);
+  
+  // imageData: the displayed image (processed with effects)
   const [imageData, setImageData] = useState<ImageData | null>(null);
   const [blur, setBlur] = useState(0);
+  // TODO: isGrayscale tracks whether grayscale has been applied for UI feedback.
+  // Future use: display indicator badge, persist state across sessions, or
+  // commit grayscale to base image for permanent effect.
   const [isGrayscale, setIsGrayscale] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   
-  // Ref to track source for blur operations
-  const sourceImageDataRef = useRef<ImageData | null>(null);
-  
-  // Keep the ref in sync with state
-  useEffect(() => {
-    sourceImageDataRef.current = sourceImageData;
-  }, [sourceImageData]);
-
-  // Helper to notify parent of state changes
-  const notifyStateChange = useCallback((updates: Partial<ImageState>) => {
-    if (onStateChange) {
-      const currentState: ImageState = {
-        hasImage: state.hasImage,
-        width: sourceImageData?.width ?? null,
-        height: sourceImageData?.height ?? null,
-        blur,
-        isGrayscale,
-        activeTools,
-        ...updates,
-      };
-      onStateChange(currentState);
-    }
-  }, [onStateChange, state.hasImage, sourceImageData, blur, isGrayscale, activeTools]);
-
-  // Handler for blur changes - updates state and notifies parent
-  const handleBlurChange = useCallback((value: number) => {
-    setBlur(value);
-    notifyStateChange({ blur: value });
-  }, [notifyStateChange]);
+  // Operation counter for race condition prevention
+  const pipelineOperationRef = useRef(0);
 
   // Render image to canvas when imageData changes
   useLayoutEffect(() => {
@@ -87,45 +75,34 @@ export default function ImageProcessor({
     }
   }, [imageData]);
 
-  // Operation counter for race condition prevention (unified pipeline)
-  const pipelineOperationRef = useRef(0);
 
-  // Apply blur to source image - used only when no activeTools are present
-  const applyBlur = useCallback(async (source: ImageData, blurRadius: number, operationId: number) => {
-    const blurredData = await blurImage(source, blurRadius);
-    
-    // Only apply if this is still the latest operation
-    if (pipelineOperationRef.current === operationId) {
-      setImageData({ ...blurredData });
-      setState(prev => ({ ...prev, status: 'complete' }));
-    }
-  }, []);
-
-  // Unified effect pipeline - handles both local blur (when no activeTools) and activeTools pipeline
-  // When activeTools is non-empty, all effects go through applyEffectsPipeline (blur in activeTools takes precedence)
-  // When activeTools is empty, local blur slider controls the blur effect
+  // Unified effect pipeline - handles activeTools processing via ImageEngine
+  // When activeTools change, process through the engine (Requirements: 3.6)
   useEffect(() => {
-    const source = sourceImageDataRef.current;
-    if (!source) return;
+    const engine = engineRef.current;
+    if (!engine || !engine.hasImage()) return;
 
     // Increment operation counter to invalidate any in-flight operations
     const operationId = ++pipelineOperationRef.current;
 
-    // If activeTools is non-empty, use the effects pipeline (activeTools takes precedence)
+    // If activeTools is non-empty, use the ImageEngine for processing
+    // Reduced debounce from 300ms to 50ms since input is now debounced at Slider level
+    // (slider-performance Requirements: 4.3)
     if (activeTools.length > 0) {
       const timeoutId = setTimeout(async () => {
-        const currentSource = sourceImageDataRef.current;
-        if (!currentSource) return;
         if (pipelineOperationRef.current !== operationId) return;
+        if (!engineRef.current?.hasImage()) return;
 
         setState(prev => ({ ...prev, error: null, status: 'processing' }));
+        setProcessingStatus('processing');
 
         try {
-          const processedData = await applyEffectsPipeline(currentSource, activeTools);
+          const processedData = await engineRef.current.process(activeTools);
           
           if (pipelineOperationRef.current === operationId) {
             setImageData({ ...processedData });
             setState(prev => ({ ...prev, status: 'complete' }));
+            setProcessingStatus('complete');
           }
         } catch (err) {
           if (pipelineOperationRef.current === operationId) {
@@ -133,42 +110,74 @@ export default function ImageProcessor({
               ? err.message 
               : 'Failed to apply effects. Please try again.';
             setState(prev => ({ ...prev, error: errorMessage, status: 'error' }));
+            setProcessingStatus('error');
           }
         }
-      }, 300);
+      }, 50);
 
       return () => clearTimeout(timeoutId);
     }
 
-    // No activeTools - use local blur slider
-    // If no blur, just use source directly without processing
+    // No activeTools - use local blur slider if needed
     if (blur === 0) {
-      setImageData(source);
-      setState(prev => ({ ...prev, status: 'complete' }));
+      // No effects to apply, show original
+      const processOriginal = async () => {
+        if (pipelineOperationRef.current !== operationId) return;
+        if (!engineRef.current?.hasImage()) return;
+        
+        try {
+          const originalData = await engineRef.current.process([]);
+          if (pipelineOperationRef.current === operationId) {
+            setImageData({ ...originalData });
+            setState(prev => ({ ...prev, status: 'complete' }));
+            setProcessingStatus('complete');
+          }
+        } catch {
+          // Ignore errors for original display
+        }
+      };
+      processOriginal();
       return;
     }
 
+    // Apply local blur when no activeTools
+    // Reduced debounce from 300ms to 50ms (slider-performance Requirements: 4.3)
     const timeoutId = setTimeout(async () => {
-      const currentSource = sourceImageDataRef.current;
-      if (!currentSource) return;
       if (pipelineOperationRef.current !== operationId) return;
+      if (!engineRef.current?.hasImage()) return;
 
       setState(prev => ({ ...prev, error: null, status: 'processing' }));
+      setProcessingStatus('processing');
 
       try {
-        await applyBlur(currentSource, blur, operationId);
+        // Create a temporary blur tool for processing
+        const blurTool = { id: 'blur', label: 'Blur', value: blur, min: 0, max: 20 };
+        const blurredData = await engineRef.current.process([blurTool]);
+        
+        if (pipelineOperationRef.current === operationId) {
+          setImageData({ ...blurredData });
+          setState(prev => ({ ...prev, status: 'complete' }));
+          setProcessingStatus('complete');
+        }
       } catch (err) {
         if (pipelineOperationRef.current === operationId) {
           const errorMessage = err instanceof Error 
             ? err.message 
             : 'Failed to apply blur effect. Please try again.';
           setState(prev => ({ ...prev, error: errorMessage, status: 'error' }));
+          setProcessingStatus('error');
         }
       }
-    }, 300);
+    }, 50);
 
     return () => clearTimeout(timeoutId);
-  }, [blur, activeTools, sourceImageData, applyBlur]);
+  }, [blur, activeTools, setProcessingStatus]);
+
+  // Handler for blur changes
+  const handleBlurChange = useCallback((value: number) => {
+    setBlur(value);
+  }, []);
+
 
   const handleFileSelect = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -187,6 +196,7 @@ export default function ImageProcessor({
         hasImage: false,
         status: 'error',
       }));
+      setProcessingStatus('error');
       // Reset the file input
       if (fileInputRef.current) {
         fileInputRef.current.value = '';
@@ -200,6 +210,7 @@ export default function ImageProcessor({
       error: null,
       status: 'initializing',
     }));
+    setProcessingStatus('initializing');
 
     try {
       // Initialize Magick.WASM
@@ -209,14 +220,19 @@ export default function ImageProcessor({
         ...prev,
         status: 'processing',
       }));
+      setProcessingStatus('processing');
 
       // Read the file into memory
       const arrayBuffer = await file.arrayBuffer();
       const uint8Array = new Uint8Array(arrayBuffer);
       
-      // Read image data using Magick.WASM
-      const data = await readImageData(uint8Array);
-      setSourceImageData(data);
+      // Create ImageEngine instance if not exists (Requirements: 3.4)
+      if (!engineRef.current) {
+        engineRef.current = new ImageEngine();
+      }
+      
+      // Load image using ImageEngine - decodes once (Requirements: 3.5)
+      const data = await engineRef.current.loadImage(uint8Array);
       setImageData(data);
       setBlur(0); // Reset blur for new image
       setIsGrayscale(false); // Reset grayscale for new image
@@ -226,14 +242,13 @@ export default function ImageProcessor({
         hasImage: true,
         status: 'complete',
       }));
+      setProcessingStatus('complete');
 
-      // Notify parent of new image state
-      notifyStateChange({
+      // Update Zustand store with new image state
+      setImageState({
         hasImage: true,
         width: data.width,
         height: data.height,
-        blur: 0,
-        isGrayscale: false,
       });
     } catch (err) {
       const errorMessage = err instanceof Error 
@@ -245,11 +260,13 @@ export default function ImageProcessor({
         error: errorMessage,
         status: 'error',
       }));
+      setProcessingStatus('error');
     }
   };
 
   const handleGrayscale = async () => {
-    if (!sourceImageData) {
+    const engine = engineRef.current;
+    if (!engine || !engine.hasImage()) {
       return;
     }
 
@@ -258,24 +275,23 @@ export default function ImageProcessor({
       error: null,
       status: 'processing',
     }));
+    setProcessingStatus('processing');
 
     try {
-      const grayscaleData = await convertToGrayscale(sourceImageData);
-      // Update source to grayscale - effects will be re-applied automatically via unified pipeline
-      setSourceImageData(grayscaleData);
+      // engine.process() is non-destructive: it applies effects to a copy of the
+      // cached pixel data and returns new ImageData without modifying the source.
+      // Note: This grayscale effect is temporary - subsequent pipeline runs with
+      // different activeTools will overwrite this result. To make grayscale
+      // permanent, you would need to commit the processed result back to the
+      // engine's cached pixels (not currently implemented).
+      const grayscaleTool = { id: 'grayscale', label: 'Grayscale', value: 100, min: 0, max: 100 };
+      const grayscaleData = await engine.process([grayscaleTool]);
+      
+      setImageData(grayscaleData);
       setIsGrayscale(true);
       
-      // If no effects active (no blur and no activeTools), update displayed image directly
-      if (blur === 0 && activeTools.length === 0) {
-        setImageData(grayscaleData);
-        setState(prev => ({ ...prev, status: 'complete' }));
-      }
-      // Otherwise, the unified pipeline will trigger and update imageData
-      
-      // Notify parent of grayscale change
-      notifyStateChange({
-        isGrayscale: true,
-      });
+      setState(prev => ({ ...prev, status: 'complete' }));
+      setProcessingStatus('complete');
     } catch (err) {
       const errorMessage = err instanceof Error 
         ? err.message 
@@ -286,10 +302,22 @@ export default function ImageProcessor({
         error: errorMessage,
         status: 'error',
       }));
+      setProcessingStatus('error');
     }
   };
 
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (engineRef.current) {
+        engineRef.current.dispose();
+        engineRef.current = null;
+      }
+    };
+  }, []);
+
   const isProcessing = state.status === 'initializing' || state.status === 'processing';
+
 
   return (
     <div className="flex flex-col items-center gap-6 w-full max-w-2xl mx-auto p-6">
@@ -365,14 +393,7 @@ export default function ImageProcessor({
               className="max-w-full border border-zinc-200 dark:border-zinc-700 rounded-lg shadow-sm"
             />
             {/* ToolPanel overlay - positioned at bottom-center of canvas */}
-            {onToolUpdate && onToolRemove && (
-              <ToolPanel
-                tools={activeTools}
-                onToolUpdate={onToolUpdate}
-                onToolRemove={onToolRemove}
-                disabled={isProcessing}
-              />
-            )}
+            <ToolPanel disabled={isProcessing} />
           </div>
           
           {/* Grayscale Button */}

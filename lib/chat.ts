@@ -1,10 +1,40 @@
 import { ImageState } from '@/lib/types';
+import { TOOL_REGISTRY, getAllToolDefinitions } from '@/lib/tools-registry';
+
+/**
+ * Generates the available tools section of the system prompt dynamically from TOOL_REGISTRY.
+ * This ensures the AI always knows the current available tools and their valid ranges.
+ * 
+ * Requirements: 4.1, 4.2, 4.3
+ */
+export function generateToolsPrompt(): string {
+  const toolDefinitions = getAllToolDefinitions();
+  
+  const toolLines = toolDefinitions.map(tool => {
+    const rangeText = tool.min < 0 
+      ? `(${tool.min} to ${tool.max > 0 ? '+' : ''}${tool.max})`
+      : `(${tool.min}-${tool.max})`;
+    return `- ${tool.id}: ${tool.label} ${rangeText}`;
+  });
+  
+  return toolLines.join('\n');
+}
+
+/**
+ * Gets the list of valid tool names from the registry for schema validation.
+ * 
+ * Requirements: 4.1
+ */
+export function getValidToolNames(): string[] {
+  return Object.keys(TOOL_REGISTRY);
+}
 
 /**
  * Builds the system message with the current image context.
  * This function is separated for testing purposes.
  * Updated to instruct AI to use show_tools for edit requests.
- * Requirements: 7.3
+ * Now dynamically generates the tools list from TOOL_REGISTRY.
+ * Requirements: 7.3, 4.1, 4.2, 4.3
  */
 export function buildSystemMessage(imageContext: ImageState): string {
   const dimensionsText = imageContext.hasImage && imageContext.width && imageContext.height
@@ -15,6 +45,9 @@ export function buildSystemMessage(imageContext: ImageState): string {
     ? imageContext.activeTools.map(t => `${t.label}: ${t.value}`).join(', ')
     : 'None';
 
+  // Generate tools list dynamically from registry
+  const toolsPrompt = generateToolsPrompt();
+
   return `You are an AI assistant for an image editing application called MagickFlow.
 
 Current image state:
@@ -24,27 +57,28 @@ Current image state:
 - Grayscale: ${imageContext.isGrayscale}
 - Active tools: ${activeToolsText}
 
-IMPORTANT: You have access to a show_tools function that summons editing controls AND applies initial values.
+You have access to two functions:
+1. show_tools - Summons editing controls AND applies initial values
+2. remove_tools - Removes editing controls from the panel
 
 Available tools and their ranges:
-- blur: Applies gaussian blur (0-20). Good starting value: 5-10 for subtle blur, 15-20 for strong blur
-- grayscale: Converts to grayscale (0-100). Use 100 for full grayscale, 50 for partial
-- sepia: Applies sepia tone (0-100). Use 50-70 for vintage look
-- contrast: Adjusts contrast (-100 to +100). Use 20-40 for subtle boost, -20 to -40 to reduce
+${toolsPrompt}
 
-When the user requests an image edit:
-1. Call show_tools with the appropriate tools AND set initial_value to apply the effect immediately
-2. Choose sensible initial values based on the user's request intensity (e.g., "a little blur" = 5, "very blurry" = 15)
-3. Respond briefly confirming what you've applied
-
-Examples:
+ADDING EFFECTS:
+When the user requests an image edit, call show_tools with initial_value set appropriately:
 - "blur it" → show_tools with blur, initial_value: 8
 - "make it vintage" → show_tools with sepia (initial_value: 60) and contrast (initial_value: 20)
-- "add some contrast" → show_tools with contrast, initial_value: 25
 - "make it very blurry" → show_tools with blur, initial_value: 18
 
-ALWAYS set an initial_value when summoning tools so the user sees an immediate effect.
-Do NOT describe how to manually adjust settings. ALWAYS use show_tools.`;
+REMOVING EFFECTS:
+When the user wants to remove/reset an effect, call remove_tools:
+- "remove blur" → remove_tools with ["blur"]
+- "remove grayscale" → remove_tools with ["grayscale"]
+- "reset all" → remove_tools with all active tool ids
+- "remove gray" → remove_tools with ["grayscale"]
+
+ALWAYS use the appropriate function. Do NOT describe manual steps.
+Keep responses brief and friendly.`;
 }
 
 /**

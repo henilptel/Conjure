@@ -1,13 +1,11 @@
 'use client';
 
 import { X } from 'lucide-react';
+import { useShallow } from 'zustand/react/shallow';
 import Slider from '../ui/Slider';
-import type { ActiveTool } from '@/lib/types';
+import { useAppStore } from '@/lib/store';
 
 export interface ToolPanelProps {
-  tools: ActiveTool[];
-  onToolUpdate: (id: string, value: number) => void;
-  onToolRemove: (id: string) => void;
   disabled?: boolean;
 }
 
@@ -15,15 +13,28 @@ export interface ToolPanelProps {
  * A glassmorphism-styled floating panel that renders tool sliders.
  * Positioned at bottom-center of the parent container.
  * Returns null when tools array is empty.
+ * 
+ * Uses Zustand store for state management with shallow equality selector
+ * to prevent unnecessary re-renders.
+ * 
+ * Requirements: 1.6, 1.7, slider-performance 3.2, 3.3
  */
 export default function ToolPanel({
-  tools,
-  onToolUpdate,
-  onToolRemove,
   disabled = false,
 }: ToolPanelProps) {
+  // Get state and actions from Zustand store with shallow equality
+  // This prevents re-renders when unrelated state changes
+  // (slider-performance Requirements: 3.2, 3.3)
+  const { activeTools, updateToolValue, removeTool } = useAppStore(
+    useShallow((state) => ({
+      activeTools: state.activeTools,
+      updateToolValue: state.updateToolValue,
+      removeTool: state.removeTool,
+    }))
+  );
+  
   // Return null when tools array is empty (Requirement 2.4)
-  if (tools.length === 0) {
+  if (activeTools.length === 0) {
     return null;
   }
 
@@ -35,7 +46,7 @@ export default function ToolPanel({
       data-testid="tool-panel"
     >
       <div className="flex flex-col gap-4">
-        {tools.map((tool) => (
+        {activeTools.map((tool) => (
           <div key={tool.id} className="flex items-center gap-2">
             <div className="flex-1">
               <Slider
@@ -44,13 +55,13 @@ export default function ToolPanel({
                 value={tool.value}
                 min={tool.min}
                 max={tool.max}
-                onChange={(value) => onToolUpdate(tool.id, value)}
+                onChange={(value) => updateToolValue(tool.id, value)}
                 disabled={disabled}
               />
             </div>
             <button
               type="button"
-              onClick={() => onToolRemove(tool.id)}
+              onClick={() => removeTool(tool.id)}
               className="p-1 rounded-full hover:bg-zinc-200/80 
                          transition-colors text-zinc-500 hover:text-zinc-700"
               aria-label={`Remove ${tool.label} tool`}

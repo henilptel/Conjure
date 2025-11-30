@@ -3,14 +3,10 @@
 import { useState, FormEvent, ChangeEvent, useEffect, useRef } from 'react';
 import { useChat } from '@ai-sdk/react';
 import { DefaultChatTransport, UIMessage, isToolUIPart, getToolName } from 'ai';
-import { ImageState, ToolInput } from '@/lib/types';
+import { ToolInput } from '@/lib/types';
+import { useAppStore } from '@/lib/store';
 import { getMessageClasses } from '@/lib/chat';
 import LoadingIndicator from './LoadingIndicator';
-
-interface ChatInterfaceProps {
-  imageState: ImageState;
-  onToolCall?: (tools: ToolInput[]) => void;
-}
 
 // Create transport once at module level - body will be passed per-request
 const transport = new DefaultChatTransport({ api: '/api/chat' });
@@ -18,7 +14,13 @@ const transport = new DefaultChatTransport({ api: '/api/chat' });
 // Maximum number of tool call IDs to track (FIFO eviction)
 const MAX_PROCESSED_TOOL_CALLS = 100;
 
-export default function ChatInterface({ imageState, onToolCall }: ChatInterfaceProps) {
+/**
+ * ChatInterface component - uses Zustand store for state management
+ * Requirements: 1.6, 1.7
+ */
+export default function ChatInterface() {
+  // Get state and actions from Zustand store
+  const { imageState, activeTools, addTool, removeTool } = useAppStore();
   const [input, setInput] = useState('');
   // Track processed tool call IDs to avoid duplicate callbacks (bounded FIFO cache)
   const processedToolCallsRef = useRef<Set<string>>(new Set());
@@ -49,11 +51,9 @@ export default function ChatInterface({ imageState, onToolCall }: ChatInterfaceP
   };
 
   // Handle tool calls from streaming response
-  // Detect show_tools tool call in message parts and invoke onToolCall callback
+  // Detect show_tools and remove_tools tool calls in message parts
   // Requirements: 1.1, 7.4
   useEffect(() => {
-    if (!onToolCall) return;
-
     // Scan all messages for tool calls
     for (const message of messages) {
       if (message.role !== 'assistant' || !message.parts) continue;
@@ -63,27 +63,32 @@ export default function ChatInterface({ imageState, onToolCall }: ChatInterfaceP
         if (isToolUIPart(part)) {
           const toolName = getToolName(part);
           
-          // Only process show_tools tool calls
-          if (toolName === 'show_tools') {
-            // Skip if already processed
-            if (processedToolCallsRef.current.has(part.toolCallId)) continue;
+          // Skip if already processed
+          if (processedToolCallsRef.current.has(part.toolCallId)) continue;
+          
+          // Process when tool input is available or output is ready
+          // v5 states: 'input-streaming', 'input-available', 'output-available', 'output-error'
+          if (part.state === 'output-available' || part.state === 'input-available') {
+            addProcessedToolCall(part.toolCallId);
             
-            // Process when tool input is available or output is ready
-            // v5 states: 'input-streaming', 'input-available', 'output-available', 'output-error'
-            if (part.state === 'output-available' || part.state === 'input-available') {
-              addProcessedToolCall(part.toolCallId);
-              
+            if (toolName === 'show_tools') {
               // Extract tools from the tool input (new format with initial values)
               const toolInput = part.input as { tools?: Array<{ name: string; initial_value?: number }> };
               if (toolInput?.tools && Array.isArray(toolInput.tools)) {
-                onToolCall(toolInput.tools);
+                addTool(toolInput.tools);
+              }
+            } else if (toolName === 'remove_tools') {
+              // Extract tools to remove
+              const toolInput = part.input as { tools?: string[] };
+              if (toolInput?.tools && Array.isArray(toolInput.tools)) {
+                toolInput.tools.forEach(toolId => removeTool(toolId));
               }
             }
           }
         }
       }
     }
-  }, [messages, onToolCall]);
+  }, [messages, addTool, removeTool]);
 
   const handleInputChange = (e: ChangeEvent<HTMLInputElement>) => {
     setInput(e.target.value);
@@ -97,10 +102,19 @@ export default function ChatInterface({ imageState, onToolCall }: ChatInterfaceP
     const messageText = input.trim();
     setInput('');
     
+    // Construct full imageContext from store state
+    // The API expects ImageState with blur, isGrayscale, and activeTools
+    const fullImageContext = {
+      ...imageState,
+      blur: activeTools.find(t => t.id === 'blur')?.value ?? 0,
+      isGrayscale: activeTools.some(t => t.id === 'grayscale' && t.value > 0),
+      activeTools,
+    };
+    
     // Pass imageContext in the body option of sendMessage
     await sendMessage(
       { text: messageText },
-      { body: { imageContext: imageState } }
+      { body: { imageContext: fullImageContext } }
     );
   };
 
@@ -122,14 +136,27 @@ export default function ChatInterface({ imageState, onToolCall }: ChatInterfaceP
     
     // If no text but there's a tool call, generate a friendly message
     for (const part of message.parts) {
-      if (isToolUIPart(part) && getToolName(part) === 'show_tools') {
-        const toolInput = part.input as { tools?: Array<{ name: string; initial_value?: number }> };
-        if (toolInput?.tools && Array.isArray(toolInput.tools)) {
-          const toolNames = toolInput.tools.map(t => t.name);
-          if (toolNames.length === 1) {
-            return `I've added the ${toolNames[0]} control for you. Adjust the slider to see the effect!`;
-          } else {
-            return `I've added ${toolNames.join(', ')} controls for you. Adjust the sliders to see the effects!`;
+      if (isToolUIPart(part)) {
+        const toolName = getToolName(part);
+        
+        if (toolName === 'show_tools') {
+          const toolInput = part.input as { tools?: Array<{ name: string; initial_value?: number }> };
+          if (toolInput?.tools && Array.isArray(toolInput.tools)) {
+            const toolNames = toolInput.tools.map(t => t.name);
+            if (toolNames.length === 1) {
+              return `I've added the ${toolNames[0]} control for you. Adjust the slider to see the effect!`;
+            } else {
+              return `I've added ${toolNames.join(', ')} controls for you. Adjust the sliders to see the effects!`;
+            }
+          }
+        } else if (toolName === 'remove_tools') {
+          const toolInput = part.input as { tools?: string[] };
+          if (toolInput?.tools && Array.isArray(toolInput.tools)) {
+            if (toolInput.tools.length === 1) {
+              return `Done! I've removed the ${toolInput.tools[0]} effect.`;
+            } else {
+              return `Done! I've removed the ${toolInput.tools.join(', ')} effects.`;
+            }
           }
         }
       }
