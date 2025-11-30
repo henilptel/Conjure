@@ -81,20 +81,27 @@ export async function POST(req: Request) {
           inputSchema: showToolsSchema,
           execute: async ({ tools }) => {
             // Return tool configurations with initial values for the client to render
-            const toolConfigs = tools.map(({ name, initial_value }) => {
-              const config = TOOL_CONFIGS[name];
-              // Use initial_value if provided, otherwise use defaultValue
-              const value = initial_value !== undefined 
-                ? Math.max(config.min, Math.min(config.max, initial_value))
-                : config.defaultValue;
-              return {
-                id: config.id,
-                label: config.label,
-                min: config.min,
-                max: config.max,
-                value,
-              };
-            });
+            const toolConfigs = tools
+              .map(({ name, initial_value }) => {
+                const config = TOOL_CONFIGS[name];
+                // Skip unknown tool names with a warning
+                if (!config) {
+                  console.warn(`Unknown tool name: ${name}, skipping`);
+                  return null;
+                }
+                // Use initial_value if provided, otherwise use defaultValue
+                const value = initial_value !== undefined 
+                  ? Math.max(config.min, Math.min(config.max, initial_value))
+                  : config.defaultValue;
+                return {
+                  id: config.id,
+                  label: config.label,
+                  min: config.min,
+                  max: config.max,
+                  value,
+                };
+              })
+              .filter((config): config is NonNullable<typeof config> => config !== null);
             return { tools: toolConfigs };
           },
         }),

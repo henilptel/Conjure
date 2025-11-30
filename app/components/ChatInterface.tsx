@@ -15,16 +15,38 @@ interface ChatInterfaceProps {
 // Create transport once at module level - body will be passed per-request
 const transport = new DefaultChatTransport({ api: '/api/chat' });
 
+// Maximum number of tool call IDs to track (FIFO eviction)
+const MAX_PROCESSED_TOOL_CALLS = 100;
+
 export default function ChatInterface({ imageState, onToolCall }: ChatInterfaceProps) {
   const [input, setInput] = useState('');
-  // Track processed tool call IDs to avoid duplicate callbacks
+  // Track processed tool call IDs to avoid duplicate callbacks (bounded FIFO cache)
   const processedToolCallsRef = useRef<Set<string>>(new Set());
+  const toolCallOrderRef = useRef<string[]>([]); // FIFO queue for eviction
 
   const { messages, sendMessage, status, error } = useChat({
     transport,
   });
 
   const isLoading = status === 'submitted' || status === 'streaming';
+
+  // Helper to add tool call ID with bounded cache eviction
+  const addProcessedToolCall = (toolCallId: string) => {
+    // If already exists, no need to add again
+    if (processedToolCallsRef.current.has(toolCallId)) return;
+    
+    // Evict oldest entries if at capacity
+    while (toolCallOrderRef.current.length >= MAX_PROCESSED_TOOL_CALLS) {
+      const oldest = toolCallOrderRef.current.shift();
+      if (oldest) {
+        processedToolCallsRef.current.delete(oldest);
+      }
+    }
+    
+    // Add new entry
+    processedToolCallsRef.current.add(toolCallId);
+    toolCallOrderRef.current.push(toolCallId);
+  };
 
   // Handle tool calls from streaming response
   // Detect show_tools tool call in message parts and invoke onToolCall callback
@@ -49,7 +71,7 @@ export default function ChatInterface({ imageState, onToolCall }: ChatInterfaceP
             // Process when tool input is available or output is ready
             // v5 states: 'input-streaming', 'input-available', 'output-available', 'output-error'
             if (part.state === 'output-available' || part.state === 'input-available') {
-              processedToolCallsRef.current.add(part.toolCallId);
+              addProcessedToolCall(part.toolCallId);
               
               // Extract tools from the tool input (new format with initial values)
               const toolInput = part.input as { tools?: Array<{ name: string; initial_value?: number }> };

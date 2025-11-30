@@ -273,6 +273,7 @@ function applySepia(image: IMagickImage, intensity: number): void {
  * @param image - The MagickImage to modify
  * @param value - Contrast adjustment (-100 to 100). 0 = no change.
  *                Positive values increase contrast, negative values decrease it.
+ *                The magnitude determines the strength of the effect.
  * 
  * Requirements: 5.2
  */
@@ -281,20 +282,11 @@ function applyContrast(image: IMagickImage, value: number): void {
     return;
   }
   
-  if (value > 0) {
-    // Increase contrast using sigmoidalContrast
-    // Map 0-100 to a reasonable contrast factor (1-10)
-    // sigmoidalContrast(contrast, midpoint) - higher contrast = more effect
-    const factor = 1 + (value / 100) * 9;
-    image.sigmoidalContrast(factor, new Percentage(50));
-  } else {
-    // Decrease contrast - use level to compress the dynamic range
-    // Map -100 to 0: at -100, compress to 25%-75% range; at 0, no change
-    const compression = Math.abs(value) / 100;
-    const blackPoint = new Percentage(compression * 25);
-    const whitePoint = new Percentage(100 - compression * 25);
-    image.level(blackPoint, whitePoint);
-  }
+  // Use brightnessContrast which directly accepts percentage values
+  // brightness = 0 (no change), contrast = value (-100 to 100)
+  // This properly handles both positive (increase) and negative (decrease) values
+  // with proportional magnitude
+  image.brightnessContrast(new Percentage(0), new Percentage(value));
 }
 
 /**

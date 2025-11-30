@@ -69,20 +69,11 @@ export default function ImageProcessor({
     }
   }, [onStateChange, state.hasImage, sourceImageData, blur, isGrayscale, activeTools]);
 
-  // Notify parent when blur changes
-  useEffect(() => {
-    if (state.hasImage && sourceImageData && onStateChange) {
-      const currentState: ImageState = {
-        hasImage: state.hasImage,
-        width: sourceImageData.width,
-        height: sourceImageData.height,
-        blur,
-        isGrayscale,
-        activeTools,
-      };
-      onStateChange(currentState);
-    }
-  }, [blur, state.hasImage, sourceImageData, isGrayscale, activeTools, onStateChange]);
+  // Handler for blur changes - updates state and notifies parent
+  const handleBlurChange = useCallback((value: number) => {
+    setBlur(value);
+    notifyStateChange({ blur: value });
+  }, [notifyStateChange]);
 
   // Render image to canvas when imageData changes
   useLayoutEffect(() => {
@@ -96,28 +87,60 @@ export default function ImageProcessor({
     }
   }, [imageData]);
 
-  // Operation counter for race condition prevention
-  const blurOperationRef = useRef(0);
+  // Operation counter for race condition prevention (unified pipeline)
+  const pipelineOperationRef = useRef(0);
 
-  // Apply blur to source image - memoized to avoid recreating on every render
+  // Apply blur to source image - used only when no activeTools are present
   const applyBlur = useCallback(async (source: ImageData, blurRadius: number, operationId: number) => {
     const blurredData = await blurImage(source, blurRadius);
     
     // Only apply if this is still the latest operation
-    if (blurOperationRef.current === operationId) {
+    if (pipelineOperationRef.current === operationId) {
       setImageData({ ...blurredData });
       setState(prev => ({ ...prev, status: 'complete' }));
     }
   }, []);
 
-  // Debounced blur processing - always applies blur from sourceImageData
+  // Unified effect pipeline - handles both local blur (when no activeTools) and activeTools pipeline
+  // When activeTools is non-empty, all effects go through applyEffectsPipeline (blur in activeTools takes precedence)
+  // When activeTools is empty, local blur slider controls the blur effect
   useEffect(() => {
     const source = sourceImageDataRef.current;
     if (!source) return;
 
     // Increment operation counter to invalidate any in-flight operations
-    const operationId = ++blurOperationRef.current;
+    const operationId = ++pipelineOperationRef.current;
 
+    // If activeTools is non-empty, use the effects pipeline (activeTools takes precedence)
+    if (activeTools.length > 0) {
+      const timeoutId = setTimeout(async () => {
+        const currentSource = sourceImageDataRef.current;
+        if (!currentSource) return;
+        if (pipelineOperationRef.current !== operationId) return;
+
+        setState(prev => ({ ...prev, error: null, status: 'processing' }));
+
+        try {
+          const processedData = await applyEffectsPipeline(currentSource, activeTools);
+          
+          if (pipelineOperationRef.current === operationId) {
+            setImageData({ ...processedData });
+            setState(prev => ({ ...prev, status: 'complete' }));
+          }
+        } catch (err) {
+          if (pipelineOperationRef.current === operationId) {
+            const errorMessage = err instanceof Error 
+              ? err.message 
+              : 'Failed to apply effects. Please try again.';
+            setState(prev => ({ ...prev, error: errorMessage, status: 'error' }));
+          }
+        }
+      }, 300);
+
+      return () => clearTimeout(timeoutId);
+    }
+
+    // No activeTools - use local blur slider
     // If no blur, just use source directly without processing
     if (blur === 0) {
       setImageData(source);
@@ -126,20 +149,16 @@ export default function ImageProcessor({
     }
 
     const timeoutId = setTimeout(async () => {
-      // Re-check source in case it changed during debounce
       const currentSource = sourceImageDataRef.current;
       if (!currentSource) return;
-      
-      // Skip if operation was superseded
-      if (blurOperationRef.current !== operationId) return;
+      if (pipelineOperationRef.current !== operationId) return;
 
       setState(prev => ({ ...prev, error: null, status: 'processing' }));
 
       try {
         await applyBlur(currentSource, blur, operationId);
       } catch (err) {
-        // Only show error if this is still the latest operation
-        if (blurOperationRef.current === operationId) {
+        if (pipelineOperationRef.current === operationId) {
           const errorMessage = err instanceof Error 
             ? err.message 
             : 'Failed to apply blur effect. Please try again.';
@@ -149,54 +168,7 @@ export default function ImageProcessor({
     }, 300);
 
     return () => clearTimeout(timeoutId);
-  }, [blur, sourceImageData, applyBlur]);
-
-  // Operation counter for activeTools pipeline race condition prevention
-  const pipelineOperationRef = useRef(0);
-
-  // Debounced effect pipeline processing based on activeTools
-  // This applies all active effects in a consistent order: blur → grayscale → sepia → contrast
-  useEffect(() => {
-    const source = sourceImageDataRef.current;
-    if (!source) return;
-    
-    // Only process if there are active tools
-    if (activeTools.length === 0) return;
-
-    // Increment operation counter to invalidate any in-flight operations
-    const operationId = ++pipelineOperationRef.current;
-
-    const timeoutId = setTimeout(async () => {
-      // Re-check source in case it changed during debounce
-      const currentSource = sourceImageDataRef.current;
-      if (!currentSource) return;
-      
-      // Skip if operation was superseded
-      if (pipelineOperationRef.current !== operationId) return;
-
-      setState(prev => ({ ...prev, error: null, status: 'processing' }));
-
-      try {
-        const processedData = await applyEffectsPipeline(currentSource, activeTools);
-        
-        // Only apply if this is still the latest operation
-        if (pipelineOperationRef.current === operationId) {
-          setImageData({ ...processedData });
-          setState(prev => ({ ...prev, status: 'complete' }));
-        }
-      } catch (err) {
-        // Only show error if this is still the latest operation
-        if (pipelineOperationRef.current === operationId) {
-          const errorMessage = err instanceof Error 
-            ? err.message 
-            : 'Failed to apply effects. Please try again.';
-          setState(prev => ({ ...prev, error: errorMessage, status: 'error' }));
-        }
-      }
-    }, 300); // 300ms debounce for performance
-
-    return () => clearTimeout(timeoutId);
-  }, [activeTools, sourceImageData]);
+  }, [blur, activeTools, sourceImageData, applyBlur]);
 
   const handleFileSelect = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -289,17 +261,17 @@ export default function ImageProcessor({
 
     try {
       const grayscaleData = await convertToGrayscale(sourceImageData);
-      // Update source to grayscale - blur effect will be re-applied automatically
+      // Update source to grayscale - effects will be re-applied automatically via unified pipeline
       setSourceImageData(grayscaleData);
       setIsGrayscale(true);
       
-      // If no blur, also update displayed image directly
-      if (blur === 0) {
+      // If no effects active (no blur and no activeTools), update displayed image directly
+      if (blur === 0 && activeTools.length === 0) {
         setImageData(grayscaleData);
         setState(prev => ({ ...prev, status: 'complete' }));
       }
-      // If blur > 0, the blur effect will trigger and update imageData
-
+      // Otherwise, the unified pipeline will trigger and update imageData
+      
       // Notify parent of grayscale change
       notifyStateChange({
         isGrayscale: true,
@@ -416,17 +388,19 @@ export default function ImageProcessor({
             Make Grayscale
           </button>
           
-          {/* Blur Slider */}
-          <div className="w-full max-w-xs">
-            <Slider
-              value={blur}
-              min={0}
-              max={20}
-              onChange={setBlur}
-              label="Blur"
-              disabled={isProcessing}
-            />
-          </div>
+          {/* Blur Slider - hidden when activeTools contains blur (HUD panel takes precedence) */}
+          {!activeTools.some(t => t.id === 'blur') && (
+            <div className="w-full max-w-xs">
+              <Slider
+                value={blur}
+                min={0}
+                max={20}
+                onChange={handleBlurChange}
+                label="Blur"
+                disabled={isProcessing}
+              />
+            </div>
+          )}
         </div>
       )}
     </div>
