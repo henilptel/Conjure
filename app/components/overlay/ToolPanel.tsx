@@ -62,10 +62,14 @@ export default function ToolPanel({
             <button
               type="button"
               onClick={() => removeTool(tool.id)}
-              className="p-1 rounded-full hover:bg-zinc-200/80 
-                         transition-colors text-zinc-500 hover:text-zinc-700"
+              className={`p-1 rounded-full transition-colors ${
+                disabled 
+                  ? 'text-zinc-300 cursor-not-allowed' 
+                  : 'hover:bg-zinc-200/80 text-zinc-500 hover:text-zinc-700'
+              }`}
               aria-label={`Remove ${tool.label} tool`}
               data-testid={`remove-tool-${tool.id}`}
+              disabled={disabled}
             >
               <X size={16} />
             </button>

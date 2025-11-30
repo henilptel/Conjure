@@ -2,13 +2,15 @@
  * Shared types for the MagickFlow image editor
  */
 
+import { TOOL_REGISTRY, getToolConfig } from './tools-registry';
+
 /**
  * Represents a single tool control in the HUD panel.
  * Each tool has a unique identifier, display label, current value,
  * and min/max constraints for the slider.
  */
 export interface ActiveTool {
-  /** Unique identifier: 'blur', 'grayscale', 'sepia', 'contrast' */
+  /** Unique identifier for the tool */
   id: string;
   /** Display label shown in the UI */
   label: string;
@@ -27,19 +29,20 @@ export type ToolConfig = Omit<ActiveTool, 'value'> & { defaultValue: number };
 
 /**
  * Valid tool names that can be used with the HUD panel
+ * Now dynamically derived from TOOL_REGISTRY
  */
-export type ToolName = 'blur' | 'grayscale' | 'sepia' | 'contrast';
+export type ToolName = keyof typeof TOOL_REGISTRY;
 
 /**
- * Default configurations for all available tools.
- * Each tool has id, label, min, max, and defaultValue.
+ * @deprecated Use TOOL_REGISTRY from tools-registry.ts instead
+ * Kept for backwards compatibility with existing tests
  */
-export const TOOL_CONFIGS: Record<ToolName, ToolConfig> = {
-  blur: { id: 'blur', label: 'Blur', min: 0, max: 20, defaultValue: 0 },
-  grayscale: { id: 'grayscale', label: 'Grayscale', min: 0, max: 100, defaultValue: 0 },
-  sepia: { id: 'sepia', label: 'Sepia', min: 0, max: 100, defaultValue: 0 },
-  contrast: { id: 'contrast', label: 'Contrast', min: -100, max: 100, defaultValue: 0 },
-};
+export const TOOL_CONFIGS: Record<string, ToolConfig> = Object.fromEntries(
+  Object.entries(TOOL_REGISTRY).map(([id, def]) => [
+    id,
+    { id: def.id, label: def.label, min: def.min, max: def.max, defaultValue: def.defaultValue }
+  ])
+);
 
 /**
  * Represents the current state of the image being processed.
@@ -74,10 +77,10 @@ export const defaultImageState: ImageState = {
 };
 
 /**
- * Checks if a string is a valid tool name
+ * Checks if a string is a valid tool name by checking TOOL_REGISTRY
  */
-export function isValidToolName(name: string): name is ToolName {
-  return Object.hasOwn(TOOL_CONFIGS, name);
+export function isValidToolName(name: string): boolean {
+  return getToolConfig(name) !== undefined;
 }
 
 /**
@@ -89,7 +92,7 @@ export interface ToolInput {
 }
 
 /**
- * Creates an ActiveTool from a tool name using TOOL_CONFIGS.
+ * Creates an ActiveTool from a tool name using TOOL_REGISTRY.
  * Returns null if the tool name is not valid.
  * 
  * @param toolName - The name of the tool to create
@@ -97,14 +100,14 @@ export interface ToolInput {
  * @returns ActiveTool with specified or default value, or null if invalid
  */
 export function createToolConfig(toolName: string, initialValue?: number): ActiveTool | null {
-  if (!isValidToolName(toolName)) {
+  const config = getToolConfig(toolName);
+  if (!config) {
     return null;
   }
   
-  const config = TOOL_CONFIGS[toolName];
   // Use initialValue if provided, otherwise use defaultValue
   // Clamp to min/max range
-  const value = initialValue !== undefined
+  const value = initialValue !== undefined && !isNaN(initialValue)
     ? Math.max(config.min, Math.min(config.max, initialValue))
     : config.defaultValue;
     
@@ -165,7 +168,7 @@ export function addToolsWithValues(currentTools: ActiveTool[], toolInputs: ToolI
     const existingTool = existingToolsMap.get(input.name);
     if (existingTool) {
       // Update existing tool with new value if provided
-      if (input.initial_value !== undefined) {
+      if (input.initial_value !== undefined && !isNaN(input.initial_value)) {
         const clampedValue = Math.max(existingTool.min, Math.min(existingTool.max, input.initial_value));
         result.push({ ...existingTool, value: clampedValue });
       } else {
@@ -189,7 +192,6 @@ export function addToolsWithValues(currentTools: ActiveTool[], toolInputs: ToolI
   return result;
 }
 
-
 /**
  * Updates the value of a specific tool in the active tools array.
  * Clamps the value to the tool's min/max range.
@@ -205,6 +207,10 @@ export function addToolsWithValues(currentTools: ActiveTool[], toolInputs: ToolI
 export function updateToolValue(tools: ActiveTool[], toolId: string, newValue: number): ActiveTool[] {
   return tools.map(tool => {
     if (tool.id !== toolId) {
+      return tool;
+    }
+    // Reject NaN values
+    if (isNaN(newValue)) {
       return tool;
     }
     // Clamp value to tool's min/max range

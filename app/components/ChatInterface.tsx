@@ -74,13 +74,15 @@ export default function ChatInterface() {
             if (toolName === 'show_tools') {
               // Extract tools from the tool input (new format with initial values)
               const toolInput = part.input as { tools?: Array<{ name: string; initial_value?: number }> };
-              if (toolInput?.tools && Array.isArray(toolInput.tools)) {
+              if (toolInput?.tools && Array.isArray(toolInput.tools) && 
+                  toolInput.tools.every(t => t && typeof t === 'object' && typeof t.name === 'string')) {
                 addTool(toolInput.tools);
               }
             } else if (toolName === 'remove_tools') {
               // Extract tools to remove
               const toolInput = part.input as { tools?: string[] };
-              if (toolInput?.tools && Array.isArray(toolInput.tools)) {
+              if (toolInput?.tools && Array.isArray(toolInput.tools) && 
+                  toolInput.tools.every(t => typeof t === 'string')) {
                 toolInput.tools.forEach(toolId => removeTool(toolId));
               }
             }
@@ -141,7 +143,8 @@ export default function ChatInterface() {
         
         if (toolName === 'show_tools') {
           const toolInput = part.input as { tools?: Array<{ name: string; initial_value?: number }> };
-          if (toolInput?.tools && Array.isArray(toolInput.tools)) {
+          if (toolInput?.tools && Array.isArray(toolInput.tools) && 
+              toolInput.tools.every(t => t && typeof t === 'object' && typeof t.name === 'string')) {
             const toolNames = toolInput.tools.map(t => t.name);
             if (toolNames.length === 1) {
               return `I've added the ${toolNames[0]} control for you. Adjust the slider to see the effect!`;
@@ -151,7 +154,8 @@ export default function ChatInterface() {
           }
         } else if (toolName === 'remove_tools') {
           const toolInput = part.input as { tools?: string[] };
-          if (toolInput?.tools && Array.isArray(toolInput.tools)) {
+          if (toolInput?.tools && Array.isArray(toolInput.tools) && 
+              toolInput.tools.every(t => typeof t === 'string')) {
             if (toolInput.tools.length === 1) {
               return `Done! I've removed the ${toolInput.tools[0]} effect.`;
             } else {

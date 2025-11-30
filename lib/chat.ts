@@ -61,7 +61,7 @@ You have access to two functions:
 1. show_tools - Summons editing controls AND applies initial values
 2. remove_tools - Removes editing controls from the panel
 
-Available tools and their ranges:
+You have a full suite of 15 professional tools available:
 ${toolsPrompt}
 
 ADDING EFFECTS:
@@ -69,6 +69,17 @@ When the user requests an image edit, call show_tools with initial_value set app
 - "blur it" → show_tools with blur, initial_value: 8
 - "make it vintage" → show_tools with sepia (initial_value: 60) and contrast (initial_value: 20)
 - "make it very blurry" → show_tools with blur, initial_value: 18
+
+PROFESSIONAL EDITING COMBINATIONS:
+For complex edits, combine multiple tools together:
+- "fix the lighting" → brightness, contrast, saturation
+- "make it vintage/retro" → sepia, contrast, vignette
+- "sketched nightmare" → charcoal, edge_detect, contrast
+- "dreamy/soft" → blur, brightness, saturation
+- "dramatic" → contrast, sharpen, vignette
+- "psychedelic" → hue, solarize, saturation
+- "pencil sketch" → charcoal, edge_detect
+- "pop art" → solarize, saturation, contrast
 
 REMOVING EFFECTS:
 When the user wants to remove/reset an effect, call remove_tools:

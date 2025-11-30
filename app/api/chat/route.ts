@@ -33,9 +33,7 @@ function isClientError(error: unknown): { isClient: boolean; status: number; mes
   }
   
   // Check for TypeError that might indicate missing required fields
-  if (error instanceof TypeError) {
-    return { isClient: true, status: 400, message: 'Invalid request format' };
-  }
+
   
   return { isClient: false, status: 500, message: 'Internal server error' };
 }
@@ -109,6 +107,9 @@ const chatRequestSchema = z.object({
  */
 function createShowToolsSchema() {
   const toolIds = getAllToolIds();
+  if (toolIds.length === 0) {
+    throw new Error('TOOL_REGISTRY must contain at least one tool');
+  }
   // Create enum from registry tool IDs
   const toolNameEnum = z.enum(toolIds as [string, ...string[]]);
   

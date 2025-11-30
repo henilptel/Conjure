@@ -9,7 +9,7 @@
  */
 
 import type { IMagickImage } from '@imagemagick/magick-wasm';
-import { Percentage } from '@imagemagick/magick-wasm';
+import { Percentage, PixelInterpolateMethod } from '@imagemagick/magick-wasm';
 
 /**
  * Definition for a single tool in the registry.
@@ -37,11 +37,34 @@ export interface ToolDefinition {
 
 /**
  * Effect application order for consistent results.
- * Effects are always applied in this order: blur → grayscale → sepia → contrast
+ * Effects are applied in this order: geometry → color adjustments → detail filters → artistic effects
  * 
- * Requirements: 2.4
+ * Order: rotate → brightness → saturation → hue → invert → blur → sharpen → charcoal → 
+ *        edge_detect → grayscale → sepia → contrast → solarize → vignette → implode
+ * 
+ * Requirements: 5.1, 5.2
  */
-export const EFFECT_ORDER: readonly string[] = ['blur', 'grayscale', 'sepia', 'contrast'];
+export const EFFECT_ORDER: readonly string[] = [
+  // Geometry (applied first - changes canvas)
+  'rotate',
+  // Color adjustments
+  'brightness',
+  'saturation',
+  'hue',
+  'invert',
+  // Detail filters
+  'blur',
+  'sharpen',
+  'charcoal',
+  'edge_detect',
+  'grayscale',
+  // Artistic effects (applied last)
+  'sepia',
+  'contrast',
+  'solarize',
+  'vignette',
+  'implode',
+];
 
 /**
  * Centralized tool registry mapping tool IDs to their configurations and execute functions.
@@ -117,16 +140,189 @@ export const TOOL_REGISTRY: Record<string, ToolDefinition> = {
       image.brightnessContrast(new Percentage(0), new Percentage(value));
     },
   },
+
+  // Category A: Color & Light Tools
+  brightness: {
+    id: 'brightness',
+    label: 'Brightness',
+    min: 0,
+    max: 200,
+    defaultValue: 100,
+    execute: (image: IMagickImage, value: number): void => {
+      // modulate(brightness, saturation, hue) - 100 is neutral
+      // No conditional needed since modulate(100, 100, 100) is neutral
+      image.modulate(new Percentage(value), new Percentage(100), new Percentage(100));
+    },
+  },
+
+  saturation: {
+    id: 'saturation',
+    label: 'Saturation',
+    min: 0,
+    max: 300,
+    defaultValue: 100,
+    execute: (image: IMagickImage, value: number): void => {
+      // modulate(brightness, saturation, hue) - 100 is neutral
+      image.modulate(new Percentage(100), new Percentage(value), new Percentage(100));
+    },
+  },
+
+  hue: {
+    id: 'hue',
+    label: 'Hue',
+    min: 0,
+    max: 200,
+    defaultValue: 100,
+    execute: (image: IMagickImage, value: number): void => {
+      // modulate(brightness, saturation, hue) - 100 is neutral
+      image.modulate(new Percentage(100), new Percentage(100), new Percentage(value));
+    },
+  },
+
+  invert: {
+    id: 'invert',
+    label: 'Invert',
+    min: 0,
+    max: 1,
+    defaultValue: 0,
+    execute: (image: IMagickImage, value: number): void => {
+      // Toggle behavior: only apply negate when value > 0
+      if (value > 0) {
+        // negate() inverts all pixel colors
+        image.negate();
+      }
+    },
+  },
+
+  // Category B: Detail & Texture Tools
+  sharpen: {
+    id: 'sharpen',
+    label: 'Sharpen',
+    min: 0,
+    max: 10,
+    defaultValue: 0,
+    execute: (image: IMagickImage, value: number): void => {
+      // Only apply when value > 0
+      if (value > 0) {
+        // sharpen(radius, sigma) - radius 0 lets ImageMagick auto-calculate
+        image.sharpen(0, value);
+      }
+    },
+  },
+
+  charcoal: {
+    id: 'charcoal',
+    label: 'Charcoal',
+    min: 0,
+    max: 10,
+    defaultValue: 0,
+    execute: (image: IMagickImage, value: number): void => {
+      // Only apply when value > 0
+      if (value > 0) {
+        // charcoal(radius, sigma) - radius 0 lets ImageMagick auto-calculate
+        image.charcoal(0, value);
+      }
+    },
+  },
+
+  edge_detect: {
+    id: 'edge_detect',
+    label: 'Edge Detect',
+    min: 0,
+    max: 10,
+    defaultValue: 0,
+    execute: (image: IMagickImage, value: number): void => {
+      // Only apply when value > 0
+      if (value > 0) {
+        // cannyEdge(radius, sigma, lowerPercent, upperPercent)
+        // radius: 0 lets ImageMagick auto-calculate
+        // sigma: controls blur before edge detection (value maps 1-10 to sigma)
+        // lowerPercent/upperPercent: thresholds for edge detection (10%, 30% are good defaults)
+        const sigma = value;
+        (image as unknown as { cannyEdge: (radius: number, sigma: number, lower: Percentage, upper: Percentage) => void })
+          .cannyEdge(0, sigma, new Percentage(10), new Percentage(30));
+      }
+    },
+  },
+
+  // Category C: Geometry & Distortion Tools
+  rotate: {
+    id: 'rotate',
+    label: 'Rotate',
+    min: -180,
+    max: 180,
+    defaultValue: 0,
+    execute: (image: IMagickImage, value: number): void => {
+      // Only apply when value !== 0
+      // Note: ImageEngine already returns actual dimensions after processing
+      if (value !== 0) {
+        image.rotate(value);
+      }
+    },
+  },
+
+  implode: {
+    id: 'implode',
+    label: 'Implode',
+    min: 0,
+    max: 100,
+    defaultValue: 0,
+    execute: (image: IMagickImage, value: number): void => {
+      // Only apply when value > 0
+      if (value > 0) {
+        // Use wave effect as implode is not available in magick-wasm
+        // wave(interpolate, amplitude, length) creates a wave distortion
+        // Scale value 0-100 to amplitude 0-25 for visible but not extreme effect
+        const amplitude = (value / 100) * 25;
+        const wavelength = 150;
+        (image as unknown as { wave: (interpolate: PixelInterpolateMethod, amplitude: number, length: number) => void })
+          .wave(PixelInterpolateMethod.Average, amplitude, wavelength);
+      }
+    },
+  },
+
+  // Category D: Artistic Tools
+  solarize: {
+    id: 'solarize',
+    label: 'Solarize',
+    min: 0,
+    max: 100,
+    defaultValue: 0,
+    execute: (image: IMagickImage, value: number): void => {
+      // Only apply when value > 0
+      if (value > 0) {
+        image.solarize(new Percentage(value));
+      }
+    },
+  },
+
+  vignette: {
+    id: 'vignette',
+    label: 'Vignette',
+    min: 0,
+    max: 100,
+    defaultValue: 0,
+    execute: (image: IMagickImage, value: number): void => {
+      // Only apply when value > 0
+      if (value > 0) {
+        image.vignette(0, value, 0, 0);
+      }
+    },
+  },
 };
 
 /**
  * Gets the tool configuration for a given tool ID.
  * Returns undefined if the tool is not found in the registry.
+ * Uses Object.hasOwn to avoid prototype chain issues with keys like 'constructor' or '__proto__'.
  * 
  * @param toolId - The ID of the tool to look up
  * @returns The ToolDefinition or undefined if not found
  */
 export function getToolConfig(toolId: string): ToolDefinition | undefined {
+  if (!Object.hasOwn(TOOL_REGISTRY, toolId)) {
+    return undefined;
+  }
   return TOOL_REGISTRY[toolId];
 }
 
@@ -141,12 +337,13 @@ export function getAllToolIds(): string[] {
 
 /**
  * Checks if a tool ID exists in the registry.
+ * Uses Object.hasOwn to avoid prototype chain issues.
  * 
  * @param toolId - The ID to check
  * @returns true if the tool exists in the registry
  */
 export function isRegisteredTool(toolId: string): boolean {
-  return toolId in TOOL_REGISTRY;
+  return Object.hasOwn(TOOL_REGISTRY, toolId);
 }
 
 /**

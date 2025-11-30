@@ -14,7 +14,7 @@ import { useRef, useCallback, useEffect } from 'react';
  * 
  * Requirements: 1.1, 1.2
  */
-export function useDebouncedCallback<T extends (...args: Parameters<T>) => void>(
+export function useDebouncedCallback<T extends (...args: any[]) => void>(
   callback: T,
   delay: number = 50
 ): (...args: Parameters<T>) => void {
@@ -43,7 +43,7 @@ export function useDebouncedCallback<T extends (...args: Parameters<T>) => void>
       }
 
       // Use default 50ms if delay is invalid
-      const effectiveDelay = delay < 0 ? 50 : delay;
+      const effectiveDelay = !isFinite(delay) || delay < 0 ? 50 : delay;
 
       // Set new timeout
       timeoutRef.current = setTimeout(() => {
