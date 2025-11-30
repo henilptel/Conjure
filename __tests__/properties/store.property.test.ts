@@ -50,6 +50,7 @@ const resetStore = () => {
     activeTools: [],
     imageState: { hasImage: false, width: null, height: null },
     processingStatus: 'idle',
+    isCompareMode: false,
   });
 };
 
@@ -413,5 +414,110 @@ describe('Property 4: setImageState updates store correctly', () => {
     
     // State should be unchanged
     expect(after).toEqual(before);
+  });
+});
+
+
+describe('Property 10: Compare Mode Round-Trip', () => {
+  /**
+   * **Feature: dynamic-dock, Property 10: Compare Mode Round-Trip**
+   * 
+   * For any loaded image, pressing Space SHALL enable compare mode, and releasing 
+   * Space SHALL disable compare mode, returning to the previous state.
+   * **Validates: Requirements 6.1, 6.2**
+   */
+
+  beforeEach(() => {
+    resetStore();
+  });
+
+  it('should enable compare mode when setCompareMode(true) is called', () => {
+    fc.assert(
+      fc.property(fc.boolean(), (initialState) => {
+        resetStore();
+        
+        const { setCompareMode } = useAppStore.getState();
+        
+        // Set initial compare mode state
+        setCompareMode(initialState);
+        const { isCompareMode: before } = useAppStore.getState();
+        expect(before).toBe(initialState);
+        
+        // Enable compare mode
+        setCompareMode(true);
+        const { isCompareMode: after } = useAppStore.getState();
+        expect(after).toBe(true);
+      }),
+      { numRuns: 100 }
+    );
+  });
+
+  it('should disable compare mode when setCompareMode(false) is called', () => {
+    fc.assert(
+      fc.property(fc.boolean(), (initialState) => {
+        resetStore();
+        
+        const { setCompareMode } = useAppStore.getState();
+        
+        // Set initial compare mode state
+        setCompareMode(initialState);
+        
+        // Disable compare mode
+        setCompareMode(false);
+        const { isCompareMode: after } = useAppStore.getState();
+        expect(after).toBe(false);
+      }),
+      { numRuns: 100 }
+    );
+  });
+
+  it('should round-trip: enable then disable returns to false', () => {
+    fc.assert(
+      fc.property(fc.constant(null), () => {
+        resetStore();
+        
+        const { setCompareMode } = useAppStore.getState();
+        
+        // Initial state should be false
+        const { isCompareMode: initial } = useAppStore.getState();
+        expect(initial).toBe(false);
+        
+        // Enable compare mode (simulates Space key press)
+        setCompareMode(true);
+        const { isCompareMode: enabled } = useAppStore.getState();
+        expect(enabled).toBe(true);
+        
+        // Disable compare mode (simulates Space key release)
+        setCompareMode(false);
+        const { isCompareMode: disabled } = useAppStore.getState();
+        expect(disabled).toBe(false);
+      }),
+      { numRuns: 100 }
+    );
+  });
+
+  it('should handle multiple enable/disable cycles', () => {
+    fc.assert(
+      fc.property(
+        fc.array(fc.boolean(), { minLength: 1, maxLength: 20 }),
+        (toggleSequence) => {
+          resetStore();
+          
+          const { setCompareMode } = useAppStore.getState();
+          
+          // Apply sequence of toggles
+          for (const enabled of toggleSequence) {
+            setCompareMode(enabled);
+            const { isCompareMode } = useAppStore.getState();
+            expect(isCompareMode).toBe(enabled);
+          }
+          
+          // Final state should match last toggle value
+          const { isCompareMode: finalState } = useAppStore.getState();
+          expect(finalState).toBe(toggleSequence[toggleSequence.length - 1]);
+        }
+      ),
+      { numRuns: 100 }
+    );
   });
 });

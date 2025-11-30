@@ -1,19 +1,25 @@
 'use client';
 
 import ImageProcessor from './components/ImageProcessor';
-import ChatInterface from './components/ChatInterface';
+import DynamicDock from './components/dock/DynamicDock';
+import { useCompareMode } from '@/lib/hooks';
 
 /**
  * Main page component - Immersive full-screen layout with layered z-index
- * Layer 1 (z-0): ImageProcessor canvas
+ * Layer 1 (z-0): ImageProcessor canvas (full viewport)
  * Layer 2 (z-10): Floating logo/header
- * Layer 3 (z-20): ChatInterface floating panel
- * Requirements: 2.1, 2.2, 2.3, 2.4, 2.5
+ * Layer 3 (z-40): DynamicDock floating at bottom center
+ * 
+ * Requirements: 7.1, 7.2, 7.3 - ChatInterface removed, ImageProcessor full viewport
+ * Requirements: 6.1, 6.2 - Compare mode wired via useCompareMode hook
  */
 export default function Home() {
+  // Wire compare mode keyboard handler (Requirements: 6.1, 6.2)
+  useCompareMode();
+
   return (
     <div className="h-screen w-screen overflow-hidden relative bg-transparent">
-      {/* Layer 1: ImageProcessor as base layer */}
+      {/* Layer 1: ImageProcessor as base layer - full viewport (Requirement 7.2) */}
       <div className="absolute inset-0 z-0">
         <ImageProcessor />
       </div>
@@ -25,10 +31,9 @@ export default function Home() {
         </h1>
       </div>
 
-      {/* Layer 3: ChatInterface as floating panel - responsive width */}
-      <div className="z-20">
-        <ChatInterface />
-      </div>
+      {/* Layer 3: DynamicDock floating at bottom center (Requirement 7.3) */}
+      {/* Note: DynamicDock handles its own positioning and visibility based on image state */}
+      <DynamicDock />
     </div>
   );
 }

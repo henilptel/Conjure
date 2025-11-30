@@ -33,6 +33,7 @@ export interface AppState {
   activeTools: ActiveTool[];
   imageState: ImageStateData;
   processingStatus: ProcessingStatus;
+  isCompareMode: boolean;
   
   // Actions
   addTool: (toolInputs: ToolInput[]) => void;
@@ -40,6 +41,7 @@ export interface AppState {
   updateToolValue: (toolId: string, value: number) => void;
   setImageState: (state: Partial<ImageStateData>) => void;
   setProcessingStatus: (status: ProcessingStatus) => void;
+  setCompareMode: (enabled: boolean) => void;
   resetTools: () => void;
 }
 
@@ -61,6 +63,7 @@ export const useAppStore = create<AppState>((set) => ({
   activeTools: [],
   imageState: defaultImageState,
   processingStatus: 'idle',
+  isCompareMode: false,
   
   // Actions
   
@@ -113,6 +116,15 @@ export const useAppStore = create<AppState>((set) => ({
    */
   setProcessingStatus: (status: ProcessingStatus) => {
     set({ processingStatus: status });
+  },
+  
+  /**
+   * Set compare mode state
+   * When enabled, displays original unprocessed image
+   * Requirements: 6.1, 6.2
+   */
+  setCompareMode: (enabled: boolean) => {
+    set({ isCompareMode: enabled });
   },
   
   /**

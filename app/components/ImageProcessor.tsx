@@ -3,11 +3,12 @@
 import { useState, useRef, ChangeEvent, useLayoutEffect, useEffect } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Upload, RotateCcw } from 'lucide-react';
+import { Upload, RotateCcw, Eye } from 'lucide-react';
 import { validateImageFile, FileValidationResult } from '@/lib/validation';
 import { initializeMagick, ImageEngine, ImageData } from '@/lib/magick';
 import { renderImageToCanvas } from '@/lib/canvas';
 import { useAppStore } from '@/lib/store';
+import { useCompareMode } from '@/lib/hooks';
 import { cn } from '@/lib/utils';
 import LoadingIndicator from './LoadingIndicator';
 import ToolPanel from './overlay/ToolPanel';
@@ -45,6 +46,9 @@ export default function ImageProcessor() {
   // Subscribe only to activeTools for the processing effect
   const activeTools = useAppStore((state) => state.activeTools);
   
+  // Subscribe to compare mode state (Requirements: 6.1, 6.2, 6.3)
+  const isCompareMode = useAppStore((state) => state.isCompareMode);
+  
   // Subscribe to actions separately (these are stable references)
   const { setImageState, setProcessingStatus, resetTools } = useAppStore(
     useShallow((state) => ({
@@ -53,6 +57,9 @@ export default function ImageProcessor() {
       resetTools: state.resetTools,
     }))
   );
+  
+  // Initialize compare mode keyboard handler (Requirements: 6.1, 6.2, 6.4)
+  useCompareMode();
   
   const [state, setState] = useState<ImageProcessorState>({
     status: 'idle',
@@ -86,12 +93,34 @@ export default function ImageProcessor() {
 
   // Unified effect pipeline - handles activeTools processing via ImageEngine
   // When activeTools change, process through the engine (Requirements: 3.6)
+  // When isCompareMode is true, display original image (Requirements: 6.1, 6.2)
   useEffect(() => {
     const engine = engineRef.current;
     if (!engine || !engine.hasImage()) return;
 
     // Increment operation counter to invalidate any in-flight operations
     const operationId = ++pipelineOperationRef.current;
+
+    // When compare mode is active, show original image (Requirements: 6.1, 6.2)
+    if (isCompareMode) {
+      const timeoutId = setTimeout(async () => {
+        if (pipelineOperationRef.current !== operationId) return;
+        if (!engineRef.current?.hasImage()) return;
+        
+        try {
+          const originalData = await engineRef.current.process([]);
+          if (pipelineOperationRef.current === operationId) {
+            setImageData({ ...originalData });
+            setState(prev => ({ ...prev, status: 'complete' }));
+            setProcessingStatus('complete');
+          }
+        } catch {
+          // Ignore errors for original display
+        }
+      }, 0);
+      
+      return () => clearTimeout(timeoutId);
+    }
 
     // If activeTools is non-empty, use the ImageEngine for processing
     // Reduced debounce from 300ms to 50ms since input is now debounced at Slider level
@@ -144,7 +173,7 @@ export default function ImageProcessor() {
     }, 0);
     
     return () => clearTimeout(timeoutId);
-  }, [activeTools, setProcessingStatus]);
+  }, [activeTools, isCompareMode, setProcessingStatus]);
 
 
   const handleFileSelect = async (event: ChangeEvent<HTMLInputElement>) => {
@@ -323,6 +352,22 @@ export default function ImageProcessor() {
           />
         </div>
       )}
+
+      {/* Compare Mode Indicator - shown when Space is held (Requirements: 6.3) */}
+      <AnimatePresence>
+        {isCompareMode && state.hasImage && (
+          <motion.div
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+            className="absolute top-6 left-1/2 -translate-x-1/2 z-10 flex items-center gap-2 px-4 py-2 bg-black/60 backdrop-blur-xl border border-white/10 rounded-full"
+            data-testid="compare-mode-indicator"
+          >
+            <Eye className="w-4 h-4 text-white/80" />
+            <span className="text-sm text-white/80 font-medium">Comparing</span>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* ToolPanel - positioned absolute bottom-center (Requirements: 3.5) */}
       {state.hasImage && (

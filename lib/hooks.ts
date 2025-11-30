@@ -2,6 +2,55 @@
  * Custom React hooks for MagickFlow
  */
 import { useRef, useCallback, useEffect } from 'react';
+import { useAppStore } from './store';
+
+/**
+ * Hook for compare mode keyboard handling
+ * Listens for Space key press/release to toggle compare mode
+ * Only activates when an image is loaded
+ * 
+ * Requirements: 6.1, 6.2, 6.4
+ */
+export function useCompareMode(): void {
+  const hasImage = useAppStore((state) => state.imageState.hasImage);
+  const setCompareMode = useAppStore((state) => state.setCompareMode);
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      // Only activate when image is loaded (Requirement 6.4)
+      if (!hasImage) return;
+      
+      // Check for Space key
+      if (event.code === 'Space') {
+        // Prevent default scrolling behavior
+        event.preventDefault();
+        // Enable compare mode (Requirement 6.1)
+        setCompareMode(true);
+      }
+    };
+
+    const handleKeyUp = (event: KeyboardEvent) => {
+      // Only activate when image is loaded (Requirement 6.4)
+      if (!hasImage) return;
+      
+      // Check for Space key
+      if (event.code === 'Space') {
+        // Disable compare mode (Requirement 6.2)
+        setCompareMode(false);
+      }
+    };
+
+    // Add global keyboard listeners
+    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('keyup', handleKeyUp);
+
+    // Cleanup on unmount
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('keyup', handleKeyUp);
+    };
+  }, [hasImage, setCompareMode]);
+}
 
 /**
  * Return type for useDebouncedCallback hook
