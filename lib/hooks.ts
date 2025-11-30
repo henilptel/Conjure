@@ -12,10 +12,11 @@ function isInputFocused(): boolean {
   if (!activeElement) return false;
   
   const tagName = activeElement.tagName.toLowerCase();
-  // Check for input, textarea, or contenteditable elements
+  // Check for input, textarea, select, or contenteditable elements
   return (
     tagName === 'input' ||
     tagName === 'textarea' ||
+    tagName === 'select' ||
     activeElement.getAttribute('contenteditable') === 'true'
   );
 }
@@ -76,10 +77,10 @@ export function useCompareMode(): void {
 
 /**
  * Return type for useDebouncedCallback hook
+ * A callable debounced function with an attached cancel method
  */
-export interface DebouncedCallback<T extends (...args: any[]) => void> {
-  /** The debounced function to call */
-  call: (...args: Parameters<T>) => void;
+export type DebouncedCallback<T extends (...args: any[]) => void> = {
+  (...args: Parameters<T>): void;
   /** Cancel any pending debounced invocation */
   cancel: () => void;
 }
@@ -123,7 +124,7 @@ export function useDebouncedCallback<T extends (...args: any[]) => void>(
     }
   }, []);
 
-  const call = useCallback(
+  const debouncedFn = useCallback(
     (...args: Parameters<T>) => {
       // Clear any existing timeout
       if (timeoutRef.current) {
@@ -139,7 +140,10 @@ export function useDebouncedCallback<T extends (...args: any[]) => void>(
       }, effectiveDelay);
     },
     [delay]
-  );
+  ) as DebouncedCallback<T>;
 
-  return { call, cancel };
+  // Attach cancel method to the function
+  debouncedFn.cancel = cancel;
+
+  return debouncedFn;
 }

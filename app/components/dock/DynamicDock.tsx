@@ -35,6 +35,9 @@ export const initialDockState: DockLocalState = {
   toastQueue: [],
 };
 
+/** Maximum number of processed message IDs to keep in cache to prevent unbounded growth */
+const MAX_PROCESSED_IDS = 500;
+
 export function dockReducer(state: DockLocalState, action: DockAction): DockLocalState {
   switch (action.type) {
     case 'ENTER_AI_MODE':
@@ -88,10 +91,38 @@ export default function DynamicDock({ disabled = false }: DynamicDockProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [toastQueue, setToastQueue] = useState<ToastMessage[]>([]);
   const processedMessageIds = useRef<Set<string>>(new Set());
+  const processedIdsOrder = useRef<string[]>([]);
+  
+  // Helper to add to bounded Set, removing oldest entries when limit exceeded
+  const addProcessedId = useCallback((id: string) => {
+    if (processedMessageIds.current.has(id)) return;
+    processedMessageIds.current.add(id);
+    processedIdsOrder.current.push(id);
+    // Evict oldest entries when exceeding limit
+    while (processedIdsOrder.current.length > MAX_PROCESSED_IDS) {
+      const oldest = processedIdsOrder.current.shift();
+      if (oldest) processedMessageIds.current.delete(oldest);
+    }
+  }, []);
   
   const { messages, sendMessage, status } = useChat({
     transport: new DefaultChatTransport({ api: '/api/chat' }),
   });
+  
+  // Clear processed IDs cache when messages are reset (empty array) or on unmount
+  useEffect(() => {
+    if (messages.length === 0) {
+      processedMessageIds.current.clear();
+      processedIdsOrder.current = [];
+    }
+  }, [messages.length]);
+  
+  useEffect(() => {
+    return () => {
+      processedMessageIds.current.clear();
+      processedIdsOrder.current = [];
+    };
+  }, []);
   
   const isAiLoading = status === 'submitted' || status === 'streaming';
   
@@ -137,7 +168,7 @@ export default function DynamicDock({ disabled = false }: DynamicDockProps) {
           // Create a unique key for this text part
           const textKey = `${message.id}-text-${part.text.substring(0, 50)}`;
           if (!processedMessageIds.current.has(textKey)) {
-            processedMessageIds.current.add(textKey);
+            addProcessedId(textKey);
             newToasts.push(part.text);
           }
         }
@@ -151,7 +182,7 @@ export default function DynamicDock({ disabled = false }: DynamicDockProps) {
           
           // Process when tool output is available (v5 state)
           if (part.state === 'output-available' || part.state === 'input-available') {
-            processedMessageIds.current.add(part.toolCallId);
+            addProcessedId(part.toolCallId);
             
             if (toolName === 'show_tools') {
               // Extract tools from the tool input (new format with initial values)
@@ -212,7 +243,7 @@ export default function DynamicDock({ disabled = false }: DynamicDockProps) {
         });
       });
     }
-  }, [messages, addTool, removeTool]);
+  }, [messages, addTool, removeTool, addProcessedId]);
 
   if (!imageState.hasImage) {
     return null;

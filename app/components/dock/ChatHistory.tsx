@@ -29,9 +29,15 @@ function getMessageText(message: UIMessage): string {
     if (isToolUIPart(part)) {
       const toolName = getToolName(part);
       if (toolName === 'show_tools') {
-        const toolInput = part.input as { tools?: Array<{ name: string }> };
-        if (toolInput?.tools) {
-          const names = toolInput.tools.map((t) => t.name);
+        const toolInput = part.input;
+        if (
+          toolInput &&
+          typeof toolInput === 'object' &&
+          'tools' in toolInput &&
+          Array.isArray((toolInput as any).tools)
+        ) {
+          const tools = (toolInput as { tools: Array<{ name: string }> }).tools;
+          const names = tools.map((t) => t.name).filter(Boolean);
           return names.length === 1
             ? `Added ${names[0]} control`
             : `Added ${names.join(', ')} controls`;

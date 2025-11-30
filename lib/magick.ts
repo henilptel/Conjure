@@ -184,53 +184,66 @@ export class ImageEngine {
     await this.mutex.acquire();
 
     // Clear any existing data (Requirements: slider-performance 2.3)
-    // Note: Using internal clear instead of dispose() to avoid re-acquiring lock
-    this.sourceBytes = null;
-    this.cachedPixels = null;
-    this.cachedWidth = 0;
-    this.cachedHeight = 0;
+    this.clearState();
 
     // Store the original bytes
     this.sourceBytes = new Uint8Array(bytes);
 
     return new Promise<ImageData>((resolve, reject) => {
+      let released = false;
+      
+      const releaseMutex = () => {
+        if (!released) {
+          released = true;
+          this.mutex.release();
+        }
+      };
+      
+      const handleError = (error: unknown, context: string) => {
+        // Clear state on error
+        this.clearState();
+        
+        releaseMutex();
+        
+        console.error(`ImageEngine.loadImage error (${context}):`, error);
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+        reject(new Error(`Failed to load image (${context}): ${errorMessage}`));
+      };
+      
       try {
         // Read the image to get dimensions and pixel data
         ImageMagick.read(this.sourceBytes!, (image) => {
-          const width = image.width;
-          const height = image.height;
+          try {
+            const width = image.width;
+            const height = image.height;
 
-          // Write to RGBA format for canvas and cache
-          image.write(MagickFormat.Rgba, (pixels) => {
-            // Cache the decoded pixels (Requirements: slider-performance 2.1)
-            this.cachedPixels = new Uint8Array(pixels);
-            this.cachedWidth = width;
-            this.cachedHeight = height;
-            
-            // Release lock after callback completes
-            this.mutex.release();
-            
-            resolve({
-              pixels: new Uint8Array(pixels),
-              width,
-              height,
-              originalBytes: this.sourceBytes!,
+            // Write to RGBA format for canvas and cache
+            image.write(MagickFormat.Rgba, (pixels) => {
+              try {
+                // Cache the decoded pixels (Requirements: slider-performance 2.1)
+                this.cachedPixels = new Uint8Array(pixels);
+                this.cachedWidth = width;
+                this.cachedHeight = height;
+                
+                // Release lock after callback completes
+                releaseMutex();
+                
+                resolve({
+                  pixels: new Uint8Array(pixels),
+                  width,
+                  height,
+                  originalBytes: this.sourceBytes!,
+                });
+              } catch (writeCallbackError) {
+                handleError(writeCallbackError, 'write callback');
+              }
             });
-          });
+          } catch (readCallbackError) {
+            handleError(readCallbackError, 'read callback');
+          }
         });
       } catch (error) {
-        // Clear state on error
-        this.sourceBytes = null;
-        this.cachedPixels = null;
-        this.cachedWidth = 0;
-        this.cachedHeight = 0;
-        
-        // Release lock on error
-        this.mutex.release();
-        
-        console.error('ImageEngine.loadImage error:', error);
-        const errorMessage = error instanceof Error ? error.message : 'Failed to load image';
-        reject(new Error(`Failed to load image: ${errorMessage}`));
+        handleError(error, 'ImageMagick.read');
       }
     });
   }
@@ -282,46 +295,66 @@ export class ImageEngine {
     // Note: ImageMagick WASM doesn't support reading from raw RGBA pixels,
     // so we must read from the compressed bytes for effect application
     return new Promise<ImageData>((resolve, reject) => {
+      let released = false;
+      
+      const releaseMutex = () => {
+        if (!released) {
+          released = true;
+          this.mutex.release();
+        }
+      };
+      
+      const handleError = (error: unknown, context: string) => {
+        releaseMutex();
+        
+        console.error(`ImageEngine.process error (${context}):`, error);
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+        reject(new Error(`Failed to process image (${context}): ${errorMessage}`));
+      };
+      
       try {
         ImageMagick.read(sourceBytes, (image) => {
-          // Sort tools by EFFECT_ORDER for consistent application
-          const sortedTools = [...activeTools].sort((a, b) => {
-            const aIndex = EFFECT_ORDER.indexOf(a.id);
-            const bIndex = EFFECT_ORDER.indexOf(b.id);
-            // Unknown tools go to the end
-            return (aIndex === -1 ? Infinity : aIndex) - (bIndex === -1 ? Infinity : bIndex);
-          });
-
-          // Apply effects from registry
-          for (const tool of sortedTools) {
-            const toolDef = TOOL_REGISTRY[tool.id];
-            if (toolDef) {
-              toolDef.execute(image, tool.value);
-            } else {
-              console.warn(`Unknown tool "${tool.id}" skipped during processing`);
-            }
-          }
-
-          // Write to RGBA for canvas rendering
-          image.write(MagickFormat.Rgba, (pixels) => {
-            // Release lock after callback completes
-            this.mutex.release();
-            
-            resolve({
-              pixels: new Uint8Array(pixels),
-              width: image.width,
-              height: image.height,
-              originalBytes: sourceBytes,
+          try {
+            // Sort tools by EFFECT_ORDER for consistent application
+            const sortedTools = [...activeTools].sort((a, b) => {
+              const aIndex = EFFECT_ORDER.indexOf(a.id);
+              const bIndex = EFFECT_ORDER.indexOf(b.id);
+              // Unknown tools go to the end
+              return (aIndex === -1 ? Infinity : aIndex) - (bIndex === -1 ? Infinity : bIndex);
             });
-          });
+
+            // Apply effects from registry
+            for (const tool of sortedTools) {
+              const toolDef = TOOL_REGISTRY[tool.id];
+              if (toolDef) {
+                toolDef.execute(image, tool.value);
+              } else {
+                console.warn(`Unknown tool "${tool.id}" skipped during processing`);
+              }
+            }
+
+            // Write to RGBA for canvas rendering
+            image.write(MagickFormat.Rgba, (pixels) => {
+              try {
+                // Release lock after callback completes
+                releaseMutex();
+                
+                resolve({
+                  pixels: new Uint8Array(pixels),
+                  width: image.width,
+                  height: image.height,
+                  originalBytes: sourceBytes,
+                });
+              } catch (writeCallbackError) {
+                handleError(writeCallbackError, 'write callback');
+              }
+            });
+          } catch (readCallbackError) {
+            handleError(readCallbackError, 'read callback');
+          }
         });
       } catch (error) {
-        // Release lock on error
-        this.mutex.release();
-        
-        console.error('ImageEngine.process error:', error);
-        const errorMessage = error instanceof Error ? error.message : 'Failed to process image';
-        reject(new Error(`Failed to process image: ${errorMessage}`));
+        handleError(error, 'ImageMagick.read');
       }
     });
   }
@@ -331,7 +364,7 @@ export class ImageEngine {
    * Should be called when the image is no longer needed or before loading a new image.
    * 
    * Thread-safe: Waits for any in-progress operations to complete before clearing state.
-   * This is an async method to ensure proper synchronization.
+   * This is the only public method for cleanup - use this instead of any synchronous variant.
    * 
    * Requirements: 3.3, slider-performance 2.4
    */
@@ -339,23 +372,20 @@ export class ImageEngine {
     // Acquire lock to ensure no operations are in progress
     await this.mutex.acquire();
     try {
-      this.sourceBytes = null;
-      this.cachedPixels = null;
-      this.cachedWidth = 0;
-      this.cachedHeight = 0;
+      this.clearState();
     } finally {
       this.mutex.release();
     }
   }
 
   /**
-   * Synchronous dispose - clears state immediately without waiting for lock.
-   * Use with caution: only safe when you know no operations are in progress.
-   * Prefer disposeAsync() for thread-safe cleanup.
+   * Internal synchronous dispose - clears state immediately without waiting for lock.
+   * Private: Only used internally (e.g., in loadImage when clearing previous state while holding lock).
+   * External callers must use disposeAsync() for thread-safe cleanup.
    * 
    * Requirements: 3.3, slider-performance 2.4
    */
-  dispose(): void {
+  private clearState(): void {
     this.sourceBytes = null;
     this.cachedPixels = null;
     this.cachedWidth = 0;

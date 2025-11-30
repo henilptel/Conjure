@@ -262,7 +262,9 @@ export default function ImageProcessor() {
   useEffect(() => {
     return () => {
       if (engineRef.current) {
-        engineRef.current.dispose();
+        // Use async dispose for thread-safe cleanup
+        // Fire-and-forget since we're unmounting
+        engineRef.current.disposeAsync();
         engineRef.current = null;
       }
     };

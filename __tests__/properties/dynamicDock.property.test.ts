@@ -90,15 +90,13 @@ describe('Property 7: Toast Auto-Dismiss', () => {
     );
   });
 
-  it('shouldAutoDismiss returns false when elapsed time < autoDismissMs', () => {
     fc.assert(
       fc.property(
         toastMessageArb,
         fc.integer({ min: 1, max: 100000 }), // autoDismissMs (at least 1ms)
-        (toast, autoDismissMs) => {
+        fc.double({ min: 0, max: 0.99 }), // elapsed fraction
+        (toast, autoDismissMs, elapsedFraction) => {
           // Current time is less than autoDismissMs after toast timestamp
-          // Use a random fraction of the dismiss time
-          const elapsedFraction = Math.random() * 0.99; // 0-99% of dismiss time
           const currentTime = toast.timestamp + Math.floor(autoDismissMs * elapsedFraction);
           
           expect(shouldAutoDismiss(toast, currentTime, autoDismissMs)).toBe(false);
@@ -106,7 +104,6 @@ describe('Property 7: Toast Auto-Dismiss', () => {
       ),
       { numRuns: 100 }
     );
-  });
 
   it('getExpiredToasts returns only toasts that have exceeded autoDismissMs', () => {
     fc.assert(

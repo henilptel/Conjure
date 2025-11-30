@@ -109,7 +109,7 @@ export default function ActiveToolsPanel({ disabled = false, onToolSelect }: Act
   );
 
   const handleSliderChange = useCallback((toolId: string, value: number) => {
-    debouncedUpdateTool.call(toolId, value);
+    debouncedUpdateTool(toolId, value);
   }, [debouncedUpdateTool]);
 
   const handleRemoveTool = useCallback((toolId: string, e: React.MouseEvent) => {
@@ -296,7 +296,7 @@ function ToolItem({
       >
         <Icon size={16} className="text-zinc-400 flex-shrink-0" />
         <span className="text-sm text-white flex-1 truncate">{tool.label}</span>
-        <span className={`text-xs ${isAtDefault ? 'text-zinc-500' : 'text-blue-400'}`}>
+        <span className={`text-xs ${isAtDefault ? 'text-zinc-500' : 'text-zinc-300'}`}>
           {formatValue(tool.value, tool.id)}
         </span>
         <button

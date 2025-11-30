@@ -49,10 +49,10 @@ const TOOL_ICONS: Record<string, LucideIcon> = {
 
 // Category icons and colors for visual distinction
 const CATEGORY_CONFIG: Record<string, { icon: LucideIcon; gradient: string }> = {
-  color: { icon: Lightbulb, gradient: 'from-amber-500/20 to-orange-500/20' },
-  detail: { icon: Focus, gradient: 'from-cyan-500/20 to-blue-500/20' },
-  artistic: { icon: Sparkles, gradient: 'from-purple-500/20 to-pink-500/20' },
-  geometry: { icon: RotateCw, gradient: 'from-emerald-500/20 to-teal-500/20' },
+  color: { icon: Paintbrush, gradient: 'from-white/15 to-white/5' },
+  detail: { icon: Focus, gradient: 'from-white/15 to-white/5' },
+  artistic: { icon: Sparkles, gradient: 'from-white/15 to-white/5' },
+  geometry: { icon: RotateCw, gradient: 'from-white/15 to-white/5' },
 };
 
 const CATEGORIES = [
@@ -117,7 +117,7 @@ export default function ToolBrowser({ isOpen, onClose, onToolSelect, initialCate
   }, [removeTool, expandedToolId]);
 
   const handleSliderChange = useCallback((toolId: string, value: number) => {
-    debouncedUpdate.call(toolId, value);
+    debouncedUpdate(toolId, value);
   }, [debouncedUpdate]);
 
   // Get tools for active category
@@ -183,7 +183,7 @@ export default function ToolBrowser({ isOpen, onClose, onToolSelect, initialCate
                     />
                     {activeCount > 0 && (
                       <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full 
-                                       bg-blue-500 text-[10px] font-bold text-white
+                                       bg-white/20 backdrop-blur-sm border border-white/30 text-[10px] font-bold text-white
                                        flex items-center justify-center">
                         {activeCount}
                       </span>
@@ -305,7 +305,7 @@ function ToolCard({
       layout
       className={`rounded-xl overflow-hidden transition-colors duration-200
                  ${isActive
-                   ? 'bg-gradient-to-r from-blue-500/20 to-purple-500/20 border border-blue-500/30'
+                   ? 'bg-white/10 border border-white/20'
                    : 'bg-white/5 border border-white/5 hover:border-white/10 hover:bg-white/10'
                  }`}
       data-testid={`tool-card-${tool.id}`}
@@ -323,15 +323,15 @@ function ToolCard({
         }}
       >
         <div className={`p-2 rounded-lg transition-colors
-                        ${isActive ? 'bg-blue-500/20' : 'bg-white/5 group-hover:bg-white/10'}`}>
-          <Icon size={16} className={isActive ? 'text-blue-400' : 'text-zinc-400'} />
+                        ${isActive ? 'bg-white/10' : 'bg-white/5 group-hover:bg-white/10'}`}>
+          <Icon size={16} className={isActive ? 'text-white' : 'text-zinc-400'} />
         </div>
         <div className="flex-1 min-w-0">
           <span className={`text-sm block ${isActive ? 'text-white font-medium' : 'text-zinc-300'}`}>
             {tool.label}
           </span>
           {isActive && (
-            <span className="text-xs text-blue-400">{formatValue(displayValue)}</span>
+            <span className="text-xs text-zinc-400">{formatValue(displayValue)}</span>
           )}
         </div>
         {isActive ? (

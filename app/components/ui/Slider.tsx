@@ -54,7 +54,7 @@ export default function Slider({
   const handleChange = (event: ChangeEvent<HTMLInputElement>) => {
     const newValue = Number(event.target.value);
     setLocalValue(newValue);           // Immediate visual update
-    debouncedOnChange.call(newValue);  // Debounced callback
+    debouncedOnChange(newValue);       // Debounced callback
   };
 
   return (
