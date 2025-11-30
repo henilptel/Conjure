@@ -1,6 +1,6 @@
 'use client';
 
-import { ChangeEvent, useId, useState, useEffect } from 'react';
+import { ChangeEvent, useId, useState, useEffect, useRef } from 'react';
 import { useDebouncedCallback } from '@/lib/hooks';
 
 /** Default debounce delay in milliseconds for slider onChange callbacks */
@@ -21,7 +21,10 @@ export interface SliderProps {
  * Slider component with debounced onChange for performance optimization.
  * Uses local state for immediate visual feedback while debouncing the callback.
  * 
- * Requirements: 1.1, 1.2, 1.3
+ * The slider tracks whether the user is actively dragging to prevent the prop
+ * sync from "jumping" the slider handle back to a stale value during interaction.
+ * 
+ * Requirements: 1.1, 1.2, 1.3, slider-performance 3.1, 3.2
  */
 export default function Slider({
   value,
@@ -39,22 +42,35 @@ export default function Slider({
   // Local state for immediate visual feedback
   const [localValue, setLocalValue] = useState(value);
   
+  // Track whether user is actively dragging to prevent prop sync during interaction
+  const isDraggingRef = useRef(false);
+  
   // Debounced callback for actual state updates
   const debouncedOnChange = useDebouncedCallback(onChange, debounceMs);
   
-  // Sync local value when prop changes externally and cancel pending debounced callbacks
-  // This effect only runs when the value prop actually changes
+  // Sync local value when prop changes externally (only when not dragging)
+  // This allows external updates (e.g., AI tool calls) to update the slider
+  // while preventing feedback loops during user interaction
   useEffect(() => {
-    setLocalValue(value);
-    // Cancel any pending debounced callback to avoid stale updates overwriting external changes
-    debouncedOnChange.cancel();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    if (!isDraggingRef.current) {
+      setLocalValue(value);
+    }
   }, [value]);
 
   const handleChange = (event: ChangeEvent<HTMLInputElement>) => {
     const newValue = Number(event.target.value);
+    isDraggingRef.current = true;
     setLocalValue(newValue);           // Immediate visual update
     debouncedOnChange(newValue);       // Debounced callback
+  };
+  
+  // Handle pointer/mouse up to mark end of drag interaction
+  const handlePointerUp = () => {
+    // Use a small timeout to allow the final debounced callback to fire
+    // before we allow prop sync again
+    setTimeout(() => {
+      isDraggingRef.current = false;
+    }, debounceMs + 10);
   };
 
   return (
@@ -72,6 +88,8 @@ export default function Slider({
         max={max}
         value={localValue}
         onChange={handleChange}
+        onPointerUp={handlePointerUp}
+        onPointerLeave={handlePointerUp}
         disabled={disabled}
         className={`w-full h-2 rounded-lg appearance-none cursor-pointer ${
           disabled
