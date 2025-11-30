@@ -81,22 +81,37 @@ export function isValidToolName(name: string): name is ToolName {
 }
 
 /**
+ * Tool input from AI with optional initial value
+ */
+export interface ToolInput {
+  name: string;
+  initial_value?: number;
+}
+
+/**
  * Creates an ActiveTool from a tool name using TOOL_CONFIGS.
  * Returns null if the tool name is not valid.
  * 
  * @param toolName - The name of the tool to create
- * @returns ActiveTool with default value, or null if invalid
+ * @param initialValue - Optional initial value to use instead of default
+ * @returns ActiveTool with specified or default value, or null if invalid
  */
-export function createToolConfig(toolName: string): ActiveTool | null {
+export function createToolConfig(toolName: string, initialValue?: number): ActiveTool | null {
   if (!isValidToolName(toolName)) {
     return null;
   }
   
   const config = TOOL_CONFIGS[toolName];
+  // Use initialValue if provided, otherwise use defaultValue
+  // Clamp to min/max range
+  const value = initialValue !== undefined
+    ? Math.max(config.min, Math.min(config.max, initialValue))
+    : config.defaultValue;
+    
   return {
     id: config.id,
     label: config.label,
-    value: config.defaultValue,
+    value,
     min: config.min,
     max: config.max,
   };
@@ -124,6 +139,54 @@ export function addTools(currentTools: ActiveTool[], newToolNames: string[]): Ac
     .filter((tool): tool is ActiveTool => tool !== null); // Filter out invalid tools
   
   return [...currentTools, ...newTools];
+}
+
+/**
+ * Adds new tools with initial values to the active tools array.
+ * Filters out duplicates and invalid tool names.
+ * If a tool already exists, updates its value to the new initial value.
+ * 
+ * @param currentTools - The current array of active tools
+ * @param toolInputs - Array of tool inputs with names and optional initial values
+ * @returns New array with tools added/updated
+ * 
+ * Requirements: 1.1, 1.3
+ */
+export function addToolsWithValues(currentTools: ActiveTool[], toolInputs: ToolInput[]): ActiveTool[] {
+  const existingToolsMap = new Map(currentTools.map(t => [t.id, t]));
+  const processedIds = new Set<string>();
+  const result: ActiveTool[] = [];
+  
+  // Process new tool inputs
+  for (const input of toolInputs) {
+    if (processedIds.has(input.name)) continue;
+    processedIds.add(input.name);
+    
+    const existingTool = existingToolsMap.get(input.name);
+    if (existingTool) {
+      // Update existing tool with new value if provided
+      if (input.initial_value !== undefined) {
+        const clampedValue = Math.max(existingTool.min, Math.min(existingTool.max, input.initial_value));
+        result.push({ ...existingTool, value: clampedValue });
+      } else {
+        result.push(existingTool);
+      }
+      existingToolsMap.delete(input.name);
+    } else {
+      // Create new tool
+      const newTool = createToolConfig(input.name, input.initial_value);
+      if (newTool) {
+        result.push(newTool);
+      }
+    }
+  }
+  
+  // Add remaining existing tools that weren't in the input
+  for (const tool of existingToolsMap.values()) {
+    result.push(tool);
+  }
+  
+  return result;
 }
 
 

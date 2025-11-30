@@ -3,13 +3,13 @@
 import { useState, FormEvent, ChangeEvent, useEffect, useRef } from 'react';
 import { useChat } from '@ai-sdk/react';
 import { DefaultChatTransport, UIMessage, isToolUIPart, getToolName } from 'ai';
-import { ImageState } from '@/lib/types';
+import { ImageState, ToolInput } from '@/lib/types';
 import { getMessageClasses } from '@/lib/chat';
 import LoadingIndicator from './LoadingIndicator';
 
 interface ChatInterfaceProps {
   imageState: ImageState;
-  onToolCall?: (tools: string[]) => void;
+  onToolCall?: (tools: ToolInput[]) => void;
 }
 
 // Create transport once at module level - body will be passed per-request
@@ -46,14 +46,15 @@ export default function ChatInterface({ imageState, onToolCall }: ChatInterfaceP
             // Skip if already processed
             if (processedToolCallsRef.current.has(part.toolCallId)) continue;
             
-            // Only process when output is available (tool execution complete)
-            if (part.state === 'output-available') {
+            // Process when tool input is available or output is ready
+            // v5 states: 'input-streaming', 'input-available', 'output-available', 'output-error'
+            if (part.state === 'output-available' || part.state === 'input-available') {
               processedToolCallsRef.current.add(part.toolCallId);
               
-              // Extract tools_to_show from the tool input
-              const toolInput = part.input as { tools_to_show?: string[] };
-              if (toolInput?.tools_to_show && Array.isArray(toolInput.tools_to_show)) {
-                onToolCall(toolInput.tools_to_show);
+              // Extract tools from the tool input (new format with initial values)
+              const toolInput = part.input as { tools?: Array<{ name: string; initial_value?: number }> };
+              if (toolInput?.tools && Array.isArray(toolInput.tools)) {
+                onToolCall(toolInput.tools);
               }
             }
           }

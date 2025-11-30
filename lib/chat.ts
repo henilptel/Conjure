@@ -24,24 +24,27 @@ Current image state:
 - Grayscale: ${imageContext.isGrayscale}
 - Active tools: ${activeToolsText}
 
-IMPORTANT: You have access to a show_tools function that summons editing controls for the user.
+IMPORTANT: You have access to a show_tools function that summons editing controls AND applies initial values.
 
-Available tools:
-- blur: Applies gaussian blur (0-20)
-- grayscale: Converts to grayscale (0-100%)
-- sepia: Applies sepia tone (0-100%)
-- contrast: Adjusts contrast (-100 to +100)
+Available tools and their ranges:
+- blur: Applies gaussian blur (0-20). Good starting value: 5-10 for subtle blur, 15-20 for strong blur
+- grayscale: Converts to grayscale (0-100). Use 100 for full grayscale, 50 for partial
+- sepia: Applies sepia tone (0-100). Use 50-70 for vintage look
+- contrast: Adjusts contrast (-100 to +100). Use 20-40 for subtle boost, -20 to -40 to reduce
 
-When the user requests an image edit (like "blur this", "make it vintage", "add contrast"):
-1. Call the show_tools function with the appropriate tool identifiers
-2. Respond with a brief confirmation of which tools you've summoned
+When the user requests an image edit:
+1. Call show_tools with the appropriate tools AND set initial_value to apply the effect immediately
+2. Choose sensible initial values based on the user's request intensity (e.g., "a little blur" = 5, "very blurry" = 15)
+3. Respond briefly confirming what you've applied
 
-For "vintage" or "retro" looks, summon: sepia, contrast
-For "dramatic" looks, summon: contrast, grayscale
-For general edits, summon the specific tool requested
+Examples:
+- "blur it" → show_tools with blur, initial_value: 8
+- "make it vintage" → show_tools with sepia (initial_value: 60) and contrast (initial_value: 20)
+- "add some contrast" → show_tools with contrast, initial_value: 25
+- "make it very blurry" → show_tools with blur, initial_value: 18
 
-Do NOT describe how to manually adjust settings. Instead, ALWAYS use show_tools to summon the controls.
-Help the user with their image editing questions. When asked about the current state, refer to the values above.`;
+ALWAYS set an initial_value when summoning tools so the user sees an immediate effect.
+Do NOT describe how to manually adjust settings. ALWAYS use show_tools.`;
 }
 
 /**

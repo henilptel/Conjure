@@ -6,13 +6,16 @@ import { ImageState, TOOL_CONFIGS } from '@/lib/types';
 
 /**
  * Zod schema for the show_tools tool.
- * Defines tools_to_show as an array of enum values.
+ * Defines tools_to_show as an array of tool configurations with optional initial values.
  * Requirements: 7.1, 7.2
  */
 const showToolsSchema = z.object({
-  tools_to_show: z.array(
-    z.enum(['blur', 'grayscale', 'sepia', 'contrast'])
-  ).describe('Array of tool identifiers to display in the HUD panel'),
+  tools: z.array(
+    z.object({
+      name: z.enum(['blur', 'grayscale', 'sepia', 'contrast']).describe('Tool identifier'),
+      initial_value: z.number().optional().describe('Optional initial value to apply immediately'),
+    })
+  ).describe('Array of tools to display with optional initial values'),
 });
 
 export async function POST(req: Request) {
@@ -74,18 +77,22 @@ export async function POST(req: Request) {
       messages: formattedMessages,
       tools: {
         show_tools: tool({
-          description: 'Summons image editing tool controls to the HUD panel. Call this when the user requests an image edit.',
-          parameters: showToolsSchema,
-          execute: async ({ tools_to_show }) => {
-            // Return tool configurations for the client to render
-            const toolConfigs = tools_to_show.map(toolName => {
-              const config = TOOL_CONFIGS[toolName];
+          description: 'Summons image editing tool controls to the HUD panel and optionally applies initial values. Call this when the user requests an image edit.',
+          inputSchema: showToolsSchema,
+          execute: async ({ tools }) => {
+            // Return tool configurations with initial values for the client to render
+            const toolConfigs = tools.map(({ name, initial_value }) => {
+              const config = TOOL_CONFIGS[name];
+              // Use initial_value if provided, otherwise use defaultValue
+              const value = initial_value !== undefined 
+                ? Math.max(config.min, Math.min(config.max, initial_value))
+                : config.defaultValue;
               return {
                 id: config.id,
                 label: config.label,
                 min: config.min,
                 max: config.max,
-                defaultValue: config.defaultValue,
+                value,
               };
             });
             return { tools: toolConfigs };

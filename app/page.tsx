@@ -3,13 +3,40 @@
 import { useState, useCallback } from 'react';
 import ImageProcessor from './components/ImageProcessor';
 import ChatInterface from './components/ChatInterface';
-import { ImageState, defaultImageState } from '@/lib/types';
+import { 
+  ImageState, 
+  defaultImageState, 
+  ActiveTool, 
+  ToolInput,
+  addToolsWithValues, 
+  updateToolValue, 
+  removeTool 
+} from '@/lib/types';
 
 export default function Home() {
   const [imageState, setImageState] = useState<ImageState>(defaultImageState);
+  const [activeTools, setActiveTools] = useState<ActiveTool[]>([]);
 
   const handleStateChange = useCallback((newState: ImageState) => {
     setImageState(newState);
+  }, []);
+
+  // Handle tool call from AI - adds new tools with initial values
+  // Requirements: 1.1
+  const handleToolCall = useCallback((toolInputs: ToolInput[]) => {
+    setActiveTools(prev => addToolsWithValues(prev, toolInputs));
+  }, []);
+
+  // Handle tool value update - uses updateToolValue function with clamping
+  // Requirements: 5.1
+  const handleToolUpdate = useCallback((id: string, value: number) => {
+    setActiveTools(prev => updateToolValue(prev, id, value));
+  }, []);
+
+  // Handle tool removal - uses removeTool function
+  // Requirements: 4.2
+  const handleToolRemove = useCallback((id: string) => {
+    setActiveTools(prev => removeTool(prev, id));
   }, []);
 
   return (
@@ -27,12 +54,20 @@ export default function Home() {
         <div className="flex flex-col lg:flex-row gap-6">
           {/* Main Content - Image Processor */}
           <main className="flex-1">
-            <ImageProcessor onStateChange={handleStateChange} />
+            <ImageProcessor 
+              onStateChange={handleStateChange}
+              activeTools={activeTools}
+              onToolUpdate={handleToolUpdate}
+              onToolRemove={handleToolRemove}
+            />
           </main>
           
           {/* Chat Sidebar */}
           <aside className="lg:w-96 h-[600px]">
-            <ChatInterface imageState={imageState} />
+            <ChatInterface 
+              imageState={imageState}
+              onToolCall={handleToolCall}
+            />
           </aside>
         </div>
         

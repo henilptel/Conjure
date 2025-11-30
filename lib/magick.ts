@@ -209,12 +209,93 @@ export function blurImage(data: ImageData, radius: number): Promise<ImageData> {
 }
 
 import type { ActiveTool } from './types';
+import type { IMagickImage } from '@imagemagick/magick-wasm';
 
 /**
  * Effect application order for consistent results
  * Effects are applied in this order: blur → grayscale → sepia → contrast
  */
 const EFFECT_ORDER = ['blur', 'grayscale', 'sepia', 'contrast'] as const;
+
+/**
+ * Internal helper: Apply Gaussian blur with given radius
+ * @param image - The MagickImage to modify
+ * @param radius - Blur radius (0-20). Values <= 0 are no-ops.
+ * 
+ * Requirements: 5.2
+ */
+function applyBlur(image: IMagickImage, radius: number): void {
+  if (radius > 0) {
+    // blur(0, sigma) lets ImageMagick auto-calculate kernel size from sigma
+    image.blur(0, radius);
+  }
+}
+
+/**
+ * Internal helper: Convert to grayscale with given intensity
+ * @param image - The MagickImage to modify
+ * @param intensity - Grayscale intensity (0-100). 0 = no change, 100 = full grayscale.
+ * 
+ * Requirements: 5.2
+ */
+function applyGrayscale(image: IMagickImage, intensity: number): void {
+  if (intensity <= 0) {
+    return;
+  }
+  
+  if (intensity >= 100) {
+    // Full grayscale conversion
+    image.grayscale();
+  } else {
+    // Partial grayscale using modulate (reduce saturation)
+    // modulate takes Percentage objects for brightness, saturation, hue
+    const saturation = new Percentage(100 - intensity);
+    image.modulate(new Percentage(100), saturation, new Percentage(100));
+  }
+}
+
+/**
+ * Internal helper: Apply sepia tone with given intensity
+ * @param image - The MagickImage to modify
+ * @param intensity - Sepia intensity (0-100). 0 = no change.
+ * 
+ * Requirements: 5.2
+ */
+function applySepia(image: IMagickImage, intensity: number): void {
+  if (intensity > 0) {
+    // SepiaTone takes a Percentage threshold
+    image.sepiaTone(new Percentage(intensity));
+  }
+}
+
+/**
+ * Internal helper: Adjust contrast with given value
+ * @param image - The MagickImage to modify
+ * @param value - Contrast adjustment (-100 to 100). 0 = no change.
+ *                Positive values increase contrast, negative values decrease it.
+ * 
+ * Requirements: 5.2
+ */
+function applyContrast(image: IMagickImage, value: number): void {
+  if (value === 0) {
+    return;
+  }
+  
+  if (value > 0) {
+    // Increase contrast using sigmoidalContrast
+    // Map 0-100 to a reasonable contrast factor (1-10)
+    // sigmoidalContrast(contrast, midpoint) - higher contrast = more effect
+    const factor = 1 + (value / 100) * 9;
+    image.sigmoidalContrast(factor, new Percentage(50));
+  } else {
+    // Decrease contrast - use level to compress the dynamic range
+    // Map -100 to 0: at -100, compress to 25%-75% range; at 0, no change
+    const compression = Math.abs(value) / 100;
+    const blackPoint = new Percentage(compression * 25);
+    const whitePoint = new Percentage(100 - compression * 25);
+    image.level(blackPoint, whitePoint);
+  }
+}
 
 /**
  * Applies multiple effects to an image in a single read/write cycle.
@@ -273,58 +354,27 @@ export function applyEffectsPipeline(data: ImageData, tools: ActiveTool[]): Prom
         const width = image.width;
         const height = image.height;
 
-        // Apply effects in order
+        // Apply effects in order using internal helper functions
         for (const tool of sortedTools) {
           const value = toolValues.get(tool.id) ?? tool.value;
           
           switch (tool.id) {
             case 'blur':
-              if (value > 0) {
-                // Apply Gaussian blur - blur(0, sigma) lets ImageMagick auto-calculate kernel size
-                image.blur(0, value);
-              }
+              applyBlur(image, value);
               break;
             case 'grayscale':
-              if (value > 0) {
-                // Apply grayscale with intensity (0-100)
-                // For full grayscale at 100, partial at lower values
-                if (value >= 100) {
-                  image.grayscale();
-                } else {
-                  // Partial grayscale using modulate (reduce saturation)
-                  // modulate takes Percentage objects
-                  const saturation = new Percentage(100 - value);
-                  image.modulate(new Percentage(100), saturation, new Percentage(100));
-                }
-              }
+              applyGrayscale(image, value);
               break;
             case 'sepia':
-              if (value > 0) {
-                // Apply sepia tone effect
-                // SepiaTone takes a Percentage threshold
-                image.sepiaTone(new Percentage(value));
-              }
+              applySepia(image, value);
               break;
             case 'contrast':
-              if (value !== 0) {
-                // Apply contrast adjustment (-100 to 100)
-                // Use brightness/contrast approach for simpler API
-                // Positive values increase contrast, negative decrease
-                // Map -100 to 100 range to appropriate contrast values
-                if (value > 0) {
-                  // Increase contrast - use contrast method
-                  image.contrast();
-                } else {
-                  // Decrease contrast - use level to reduce dynamic range
-                  // This is a simplified approach
-                  image.level(new Percentage(10), new Percentage(90));
-                }
-              }
+              applyContrast(image, value);
               break;
           }
         }
 
-        // Write to RGBA for canvas rendering
+        // Write to RGBA for canvas rendering (single write at the end)
         image.write(MagickFormat.Rgba, (pixels) => {
           resolve({
             pixels: new Uint8Array(pixels),
