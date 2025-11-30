@@ -109,10 +109,33 @@ export default function ChatInterface({ imageState, onToolCall }: ChatInterfaceP
     if (!message.parts || message.parts.length === 0) {
       return '';
     }
-    return message.parts
+    
+    // First, try to get text content
+    const textContent = message.parts
       .filter((part): part is { type: 'text'; text: string } => part.type === 'text')
       .map(part => part.text)
       .join('');
+    
+    if (textContent) {
+      return textContent;
+    }
+    
+    // If no text but there's a tool call, generate a friendly message
+    for (const part of message.parts) {
+      if (isToolUIPart(part) && getToolName(part) === 'show_tools') {
+        const toolInput = part.input as { tools?: Array<{ name: string; initial_value?: number }> };
+        if (toolInput?.tools && Array.isArray(toolInput.tools)) {
+          const toolNames = toolInput.tools.map(t => t.name);
+          if (toolNames.length === 1) {
+            return `I've added the ${toolNames[0]} control for you. Adjust the slider to see the effect!`;
+          } else {
+            return `I've added ${toolNames.join(', ')} controls for you. Adjust the sliders to see the effects!`;
+          }
+        }
+      }
+    }
+    
+    return '';
   };
 
   return (
