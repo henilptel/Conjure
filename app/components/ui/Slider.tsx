@@ -3,6 +3,9 @@
 import { ChangeEvent, useId, useState, useEffect } from 'react';
 import { useDebouncedCallback } from '@/lib/hooks';
 
+/** Default debounce delay in milliseconds for slider onChange callbacks */
+export const DEFAULT_DEBOUNCE_MS = 50;
+
 export interface SliderProps {
   value: number;
   min: number;
@@ -28,7 +31,7 @@ export default function Slider({
   label,
   disabled = false,
   id,
-  debounceMs = 50,
+  debounceMs = DEFAULT_DEBOUNCE_MS,
 }: SliderProps) {
   const generatedId = useId();
   const inputId = id ?? `slider-${generatedId}`;
@@ -36,25 +39,29 @@ export default function Slider({
   // Local state for immediate visual feedback
   const [localValue, setLocalValue] = useState(value);
   
-  // Sync local value when prop changes externally
-  useEffect(() => {
-    setLocalValue(value);
-  }, [value]);
-  
   // Debounced callback for actual state updates
   const debouncedOnChange = useDebouncedCallback(onChange, debounceMs);
+  
+  // Sync local value when prop changes externally and cancel pending debounced callbacks
+  // This effect only runs when the value prop actually changes
+  useEffect(() => {
+    setLocalValue(value);
+    // Cancel any pending debounced callback to avoid stale updates overwriting external changes
+    debouncedOnChange.cancel();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [value]);
 
   const handleChange = (event: ChangeEvent<HTMLInputElement>) => {
     const newValue = Number(event.target.value);
-    setLocalValue(newValue);        // Immediate visual update
-    debouncedOnChange(newValue);    // Debounced callback
+    setLocalValue(newValue);           // Immediate visual update
+    debouncedOnChange.call(newValue);  // Debounced callback
   };
 
   return (
     <div className="flex flex-col gap-2 w-full">
       <label
         htmlFor={inputId}
-        className="text-sm font-medium text-zinc-700 dark:text-zinc-300"
+        className="text-sm font-medium text-zinc-300"
       >
         {label}: {localValue}
       </label>
@@ -68,8 +75,8 @@ export default function Slider({
         disabled={disabled}
         className={`w-full h-2 rounded-lg appearance-none cursor-pointer ${
           disabled
-            ? 'bg-zinc-300 dark:bg-zinc-700 cursor-not-allowed'
-            : 'bg-zinc-200 dark:bg-zinc-700 accent-zinc-900 dark:accent-zinc-100'
+            ? 'bg-zinc-700 cursor-not-allowed'
+            : 'bg-zinc-700 accent-zinc-100'
         }`}
       />
     </div>
