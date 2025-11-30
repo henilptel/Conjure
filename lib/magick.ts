@@ -143,6 +143,7 @@ class AsyncMutex {
  * Performance Optimization (slider-performance spec):
  * - Caches decoded RGBA pixels after initial load
  * - process() uses cached pixels instead of re-decoding from bytes
+ * - Memoization: Returns cached result if activeTools haven't changed (dirty-check)
  * - Significantly reduces CPU usage during slider interactions
  *
  * Requirements: 3.1, 3.2, 3.3, slider-performance 2.1, 2.2, 2.3, 2.4
@@ -162,6 +163,25 @@ export class ImageEngine {
   
   /** Cached image height */
   private cachedHeight: number = 0;
+  
+  /** Last processed tools signature for memoization */
+  private lastToolsSignature: string = '';
+  
+  /** Cached processed result for memoization */
+  private lastProcessedResult: ImageData | null = null;
+
+  /**
+   * Computes a signature string for an array of ActiveTools for memoization.
+   * Tools are sorted by id and serialized to ensure consistent comparison.
+   */
+  private computeToolsSignature(tools: ActiveTool[]): string {
+    if (tools.length === 0) return '';
+    // Sort by id for consistent ordering, then serialize id:value pairs
+    return [...tools]
+      .sort((a, b) => a.id.localeCompare(b.id))
+      .map(t => `${t.id}:${t.value}`)
+      .join('|');
+  }
 
   /**
    * Loads an image from bytes, decodes once, and caches the pixel data.
@@ -253,6 +273,9 @@ export class ImageEngine {
    * Uses cached pixel data when no effects need to be applied,
    * otherwise re-reads from bytes to apply effects (ImageMagick requires this).
    * 
+   * Memoization: Returns cached result if activeTools signature matches
+   * the last processed tools (dirty-check optimization).
+   * 
    * Thread-safe: Acquires mutex before accessing shared state.
    * Lock is released after ImageMagick.read callback completes.
    *
@@ -282,12 +305,30 @@ export class ImageEngine {
 
     // If no tools, return cached pixels directly (fast path)
     if (activeTools.length === 0) {
+      // Clear memoization cache for empty tools case
+      this.lastToolsSignature = '';
+      this.lastProcessedResult = null;
+      
       this.mutex.release();
       return {
         pixels: new Uint8Array(cachedPixels),
         width: cachedWidth,
         height: cachedHeight,
         originalBytes: sourceBytes,
+      };
+    }
+
+    // Dirty-check: Compare tools signature with last processed
+    const currentSignature = this.computeToolsSignature(activeTools);
+    if (currentSignature === this.lastToolsSignature && this.lastProcessedResult) {
+      // Return cached result (copy pixels to avoid mutation issues)
+      const cachedResult = this.lastProcessedResult;
+      this.mutex.release();
+      return {
+        pixels: new Uint8Array(cachedResult.pixels),
+        width: cachedResult.width,
+        height: cachedResult.height,
+        originalBytes: cachedResult.originalBytes,
       };
     }
 
@@ -336,15 +377,26 @@ export class ImageEngine {
             // Write to RGBA for canvas rendering
             image.write(MagickFormat.Rgba, (pixels) => {
               try {
-                // Release lock after callback completes
-                releaseMutex();
-                
-                resolve({
+                const result: ImageData = {
                   pixels: new Uint8Array(pixels),
                   width: image.width,
                   height: image.height,
                   originalBytes: sourceBytes,
-                });
+                };
+                
+                // Cache the result for memoization
+                this.lastToolsSignature = currentSignature;
+                this.lastProcessedResult = {
+                  pixels: new Uint8Array(pixels), // Store a copy
+                  width: image.width,
+                  height: image.height,
+                  originalBytes: sourceBytes,
+                };
+                
+                // Release lock after callback completes
+                releaseMutex();
+                
+                resolve(result);
               } catch (writeCallbackError) {
                 handleError(writeCallbackError, 'write callback');
               }
@@ -390,6 +442,9 @@ export class ImageEngine {
     this.cachedPixels = null;
     this.cachedWidth = 0;
     this.cachedHeight = 0;
+    // Clear memoization cache
+    this.lastToolsSignature = '';
+    this.lastProcessedResult = null;
   }
 
   /**

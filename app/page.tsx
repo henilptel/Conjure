@@ -12,9 +12,9 @@ import { useAppStore } from '@/lib/store';
  * Layer 1 (z-0): ImageProcessor canvas (full viewport)
  * Layer 2 (z-10): Floating logo/header
  * Layer 3 (z-30): ActiveToolsPanel on left, EffectsFAB on right
- * Layer 4 (z-40): DynamicDock floating at bottom center (AI-focused)
+ * Layer 4 (z-40): DynamicDock floating AI input at bottom center
  * 
- * Requirements: 7.1, 7.2, 7.3 - ChatInterface removed, ImageProcessor full viewport
+ * Requirements: 7.1, 7.2, 7.3 - Centralized chat via ChatContext
  * Requirements: 6.1, 6.2 - Compare mode wired via useCompareMode hook
  */
 export default function Home() {
@@ -43,7 +43,7 @@ export default function Home() {
       {/* Layer 3: EffectsFAB - floating action button on right side */}
       <EffectsFAB />
 
-      {/* Layer 4: DynamicDock floating at bottom center - AI chat (Requirement 7.3) */}
+      {/* Layer 4: DynamicDock - floating AI input at bottom center */}
       <DynamicDock />
     </div>
   );

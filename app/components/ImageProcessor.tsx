@@ -6,7 +6,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Upload, RotateCcw, Eye } from 'lucide-react';
 import { validateImageFile, FileValidationResult } from '@/lib/validation';
 import { initializeMagick, ImageEngine, ImageData } from '@/lib/magick';
-import { renderImageToCanvas } from '@/lib/canvas';
+import { renderImageToCanvas, createCanvasRenderCache, CanvasRenderCache } from '@/lib/canvas';
 import { useAppStore } from '@/lib/store';
 import { useCompareMode } from '@/lib/hooks';
 import { cn } from '@/lib/utils';
@@ -74,18 +74,31 @@ export default function ImageProcessor() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   
+  // Cached canvas rendering resources for performance optimization
+  const canvasCtxRef = useRef<CanvasRenderingContext2D | null>(null);
+  const canvasRenderCacheRef = useRef<CanvasRenderCache>(createCanvasRenderCache());
+  
   // Operation counter for race condition prevention
   const pipelineOperationRef = useRef(0);
 
-  // Render image to canvas when imageData changes
+  // Render image to canvas when imageData changes (with cached resources)
   useLayoutEffect(() => {
     if (imageData && canvasRef.current) {
-      renderImageToCanvas(
-        canvasRef.current,
-        imageData.pixels,
-        imageData.width,
-        imageData.height
-      );
+      // Get or cache the canvas context
+      if (!canvasCtxRef.current) {
+        canvasCtxRef.current = canvasRef.current.getContext('2d');
+      }
+      
+      if (canvasCtxRef.current) {
+        renderImageToCanvas(
+          canvasCtxRef.current,
+          canvasRef.current,
+          imageData.pixels,
+          imageData.width,
+          imageData.height,
+          canvasRenderCacheRef.current
+        );
+      }
     }
   }, [imageData]);
 
@@ -370,7 +383,7 @@ export default function ImageProcessor() {
         )}
       </AnimatePresence>
 
-      {/* Note: ToolPanel removed - DynamicDock now handles tool controls */}
+      {/* Note: Tool controls handled by ActiveToolsPanel and EffectsFAB */}
 
       {/* Reset Button - positioned at bottom left */}
       {state.hasImage && activeTools.length > 0 && (
