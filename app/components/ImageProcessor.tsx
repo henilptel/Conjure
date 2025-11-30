@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, ChangeEvent, useLayoutEffect, useEffect } from 'react';
+import { useState, useRef, ChangeEvent, useLayoutEffect, useEffect, useCallback } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Upload, RotateCcw } from 'lucide-react';
@@ -10,7 +10,7 @@ import { renderImageToCanvas } from '@/lib/canvas';
 import { useAppStore } from '@/lib/store';
 import { cn } from '@/lib/utils';
 import LoadingIndicator from './LoadingIndicator';
-import ToolPanel from './overlay/ToolPanel';
+import NodeGraph from './NodeGraph';
 
 type ProcessingStatus = 'idle' | 'initializing' | 'processing' | 'complete' | 'error';
 
@@ -18,6 +18,12 @@ interface ImageProcessorState {
   status: ProcessingStatus;
   error: string | null;
   hasImage: boolean;
+}
+
+interface DragState {
+  isDragging: boolean;
+  position: { x: number; y: number };
+  dragStart: { x: number; y: number };
 }
 
 // Drop Zone animation variants (Framer Motion) - Requirements: 3.1, 3.2
@@ -42,15 +48,18 @@ export default function ImageProcessor() {
   // Selective subscriptions to Zustand store to prevent unnecessary re-renders
   // (slider-performance Requirements: 3.1, 3.2)
   
-  // Subscribe only to activeTools for the processing effect
-  const activeTools = useAppStore((state) => state.activeTools);
+  // Subscribe to nodes and edges for graph-based processing (Requirements: 5.2, 5.4)
+  const nodes = useAppStore((state) => state.nodes);
+  const edges = useAppStore((state) => state.edges);
+  const getOrderedTools = useAppStore((state) => state.getOrderedTools);
   
   // Subscribe to actions separately (these are stable references)
-  const { setImageState, setProcessingStatus, resetTools } = useAppStore(
+  const { setImageState, setProcessingStatus, resetTools, initializeGraph } = useAppStore(
     useShallow((state) => ({
       setImageState: state.setImageState,
       setProcessingStatus: state.setProcessingStatus,
       resetTools: state.resetTools,
+      initializeGraph: state.initializeGraph,
     }))
   );
   
@@ -68,6 +77,13 @@ export default function ImageProcessor() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   
+  // Drag state for canvas positioning
+  const [dragState, setDragState] = useState<DragState>({
+    isDragging: false,
+    position: { x: 0, y: 0 },
+    dragStart: { x: 0, y: 0 },
+  });
+  
   // Operation counter for race condition prevention
   const pipelineOperationRef = useRef(0);
 
@@ -83,9 +99,115 @@ export default function ImageProcessor() {
     }
   }, [imageData]);
 
+  // Drag handlers for canvas movement
+  const handleDragStart = useCallback((clientX: number, clientY: number) => {
+    setDragState(prev => ({
+      ...prev,
+      isDragging: true,
+      dragStart: {
+        x: clientX - prev.position.x,
+        y: clientY - prev.position.y,
+      },
+    }));
+  }, []);
 
-  // Unified effect pipeline - handles activeTools processing via ImageEngine
-  // When activeTools change, process through the engine (Requirements: 3.6)
+  const handleDragMove = useCallback((clientX: number, clientY: number) => {
+    setDragState(prev => {
+      if (!prev.isDragging) return prev;
+      return {
+        ...prev,
+        position: {
+          x: clientX - prev.dragStart.x,
+          y: clientY - prev.dragStart.y,
+        },
+      };
+    });
+  }, []);
+
+  const handleDragEnd = useCallback(() => {
+    setDragState(prev => ({
+      ...prev,
+      isDragging: false,
+    }));
+  }, []);
+
+  // Mouse event handlers
+  const handleMouseDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    handleDragStart(e.clientX, e.clientY);
+  }, [handleDragStart]);
+
+  const handleMouseMove = useCallback((e: React.MouseEvent) => {
+    handleDragMove(e.clientX, e.clientY);
+  }, [handleDragMove]);
+
+  const handleMouseUp = useCallback(() => {
+    handleDragEnd();
+  }, [handleDragEnd]);
+
+  // Touch event handlers for mobile support
+  const handleTouchStart = useCallback((e: React.TouchEvent) => {
+    const touch = e.touches[0];
+    handleDragStart(touch.clientX, touch.clientY);
+  }, [handleDragStart]);
+
+  const handleTouchMove = useCallback((e: React.TouchEvent) => {
+    const touch = e.touches[0];
+    handleDragMove(touch.clientX, touch.clientY);
+  }, [handleDragMove]);
+
+  const handleTouchEnd = useCallback(() => {
+    handleDragEnd();
+  }, [handleDragEnd]);
+
+  // Global mouse/touch listeners for drag continuation outside canvas
+  useEffect(() => {
+    if (!dragState.isDragging) return;
+
+    const handleGlobalMouseMove = (e: MouseEvent) => {
+      handleDragMove(e.clientX, e.clientY);
+    };
+
+    const handleGlobalMouseUp = () => {
+      handleDragEnd();
+    };
+
+    const handleGlobalTouchMove = (e: TouchEvent) => {
+      const touch = e.touches[0];
+      handleDragMove(touch.clientX, touch.clientY);
+    };
+
+    const handleGlobalTouchEnd = () => {
+      handleDragEnd();
+    };
+
+    window.addEventListener('mousemove', handleGlobalMouseMove);
+    window.addEventListener('mouseup', handleGlobalMouseUp);
+    window.addEventListener('touchmove', handleGlobalTouchMove);
+    window.addEventListener('touchend', handleGlobalTouchEnd);
+
+    return () => {
+      window.removeEventListener('mousemove', handleGlobalMouseMove);
+      window.removeEventListener('mouseup', handleGlobalMouseUp);
+      window.removeEventListener('touchmove', handleGlobalTouchMove);
+      window.removeEventListener('touchend', handleGlobalTouchEnd);
+    };
+  }, [dragState.isDragging, handleDragMove, handleDragEnd]);
+
+  // Reset position when a new image is loaded
+  useEffect(() => {
+    if (state.hasImage) {
+      setDragState(prev => ({
+        ...prev,
+        position: { x: 0, y: 0 },
+      }));
+    }
+  }, [state.hasImage]);
+
+
+  // Unified effect pipeline - handles graph-based processing via ImageEngine
+  // When nodes/edges change, compute ordered tools and process through the engine
+  // (Requirements: 5.2, 5.4)
   useEffect(() => {
     const engine = engineRef.current;
     if (!engine || !engine.hasImage()) return;
@@ -93,10 +215,13 @@ export default function ImageProcessor() {
     // Increment operation counter to invalidate any in-flight operations
     const operationId = ++pipelineOperationRef.current;
 
-    // If activeTools is non-empty, use the ImageEngine for processing
+    // Get ordered tools from graph traversal (Requirements: 5.1, 5.2)
+    const orderedTools = getOrderedTools();
+
+    // If orderedTools is non-empty, use the ImageEngine for processing
     // Reduced debounce from 300ms to 50ms since input is now debounced at Slider level
     // (slider-performance Requirements: 4.3)
-    if (activeTools.length > 0) {
+    if (orderedTools.length > 0) {
       const timeoutId = setTimeout(async () => {
         if (pipelineOperationRef.current !== operationId) return;
         if (!engineRef.current?.hasImage()) return;
@@ -105,7 +230,7 @@ export default function ImageProcessor() {
         setProcessingStatus('processing');
 
         try {
-          const processedData = await engineRef.current.process(activeTools);
+          const processedData = await engineRef.current.process(orderedTools);
           
           if (pipelineOperationRef.current === operationId) {
             setImageData({ ...processedData });
@@ -126,7 +251,7 @@ export default function ImageProcessor() {
       return () => clearTimeout(timeoutId);
     }
 
-    // No activeTools - show original image
+    // No orderedTools - show original image
     const timeoutId = setTimeout(async () => {
       if (pipelineOperationRef.current !== operationId) return;
       if (!engineRef.current?.hasImage()) return;
@@ -144,7 +269,7 @@ export default function ImageProcessor() {
     }, 0);
     
     return () => clearTimeout(timeoutId);
-  }, [activeTools, setProcessingStatus]);
+  }, [nodes, edges, getOrderedTools, setProcessingStatus]);
 
 
   const handleFileSelect = async (event: ChangeEvent<HTMLInputElement>) => {
@@ -216,6 +341,9 @@ export default function ImageProcessor() {
         width: data.width,
         height: data.height,
       });
+      
+      // Initialize the node graph with Source and Output nodes
+      initializeGraph();
     } catch (err) {
       const errorMessage = err instanceof Error 
         ? err.message 
@@ -314,23 +442,43 @@ export default function ImageProcessor() {
       )}
 
       {/* Canvas for Image Display - centered, floating appearance (Requirements: 3.3, 3.4) */}
+      {/* z-0 ensures canvas remains visible beneath NodeGraph overlay */}
       {state.hasImage && (
-        <div className="flex items-center justify-center h-full w-full p-8">
+        <div 
+          className="absolute inset-0 z-0 flex items-center justify-center p-8 overflow-hidden"
+          onMouseMove={handleMouseMove}
+          onMouseUp={handleMouseUp}
+          onMouseLeave={handleMouseUp}
+        >
           <canvas
             ref={canvasRef}
-            className="max-w-full max-h-full"
+            className={cn(
+              "max-w-full max-h-full",
+              dragState.isDragging ? "cursor-grabbing" : "cursor-grab"
+            )}
+            style={{
+              transform: `translate(${dragState.position.x}px, ${dragState.position.y}px)`,
+              transition: dragState.isDragging ? 'none' : 'transform 0.1s ease-out',
+            }}
+            onMouseDown={handleMouseDown}
+            onTouchStart={handleTouchStart}
+            onTouchMove={handleTouchMove}
+            onTouchEnd={handleTouchEnd}
             data-testid="image-canvas"
           />
         </div>
       )}
 
-      {/* ToolPanel - positioned absolute bottom-center (Requirements: 3.5) */}
+      {/* NodeGraph - fullscreen overlay for node-based effect pipeline (Requirements: 1.1, 1.2) */}
+      {/* z-10 ensures NodeGraph floats above the canvas */}
       {state.hasImage && (
-        <ToolPanel disabled={isProcessing} />
+        <div className="absolute inset-0 z-10">
+          <NodeGraph disabled={isProcessing} />
+        </div>
       )}
 
       {/* Reset Button - positioned at bottom left */}
-      {state.hasImage && activeTools.length > 0 && (
+      {state.hasImage && nodes.length > 0 && (
         <button
           onClick={resetTools}
           disabled={isProcessing}

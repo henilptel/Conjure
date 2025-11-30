@@ -22,7 +22,8 @@ const MAX_PROCESSED_TOOL_CALLS = 100;
  */
 export default function ChatInterface() {
   // Get state and actions from Zustand store
-  const { imageState, activeTools, addTool, removeTool } = useAppStore();
+  // Use graph-based addNode for node-graph-architecture
+  const { imageState, activeTools, addTool, removeTool, addNode, removeNode, nodes, edges, connectNodes } = useAppStore();
   const [input, setInput] = useState('');
   // Track processed tool call IDs to avoid duplicate callbacks (bounded FIFO cache)
   const processedToolCallsRef = useRef<Set<string>>(new Set());
@@ -78,21 +79,38 @@ export default function ChatInterface() {
               const toolInput = part.input as { tools?: Array<{ name: string; initial_value?: number }> };
               if (toolInput?.tools && Array.isArray(toolInput.tools) && 
                   toolInput.tools.every(t => t && typeof t === 'object' && typeof t.name === 'string')) {
+                // Add tools using graph-based addNode
+                // Also add to legacy activeTools for backwards compatibility
                 addTool(toolInput.tools);
+                
+                // Add nodes to the graph and connect them
+                toolInput.tools.forEach(tool => {
+                  addNode(tool.name);
+                });
               }
             } else if (toolName === 'remove_tools') {
               // Extract tools to remove
               const toolInput = part.input as { tools?: string[] };
               if (toolInput?.tools && Array.isArray(toolInput.tools) && 
                   toolInput.tools.every(t => typeof t === 'string')) {
-                toolInput.tools.forEach(toolId => removeTool(toolId));
+                toolInput.tools.forEach(toolId => {
+                  removeTool(toolId);
+                  // Also remove from graph - find node by toolId
+                  const nodeToRemove = nodes.find(n => {
+                    const data = n.data as { toolId?: string };
+                    return data?.toolId === toolId;
+                  });
+                  if (nodeToRemove) {
+                    removeNode(nodeToRemove.id);
+                  }
+                });
               }
             }
           }
         }
       }
     }
-  }, [messages, addTool, removeTool]);
+  }, [messages, addTool, removeTool, addNode, removeNode, nodes]);
 
   const handleInputChange = (e: ChangeEvent<HTMLInputElement>) => {
     setInput(e.target.value);

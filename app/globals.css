@@ -19,3 +19,88 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+
+/* React Flow Glass Aesthetic Styles */
+/* Requirements: 1.3, 2.4 */
+
+/* Make React Flow background transparent */
+.react-flow__background {
+  background: transparent !important;
+}
+
+/* Style the edges with glass aesthetic */
+.react-flow__edge-path {
+  stroke: rgba(255, 255, 255, 0.3) !important;
+  stroke-width: 2px;
+}
+
+/* Animated edge glow effect */
+.react-flow__edge.animated .react-flow__edge-path {
+  stroke-dasharray: 5;
+  animation: dashdraw 0.5s linear infinite;
+}
+
+@keyframes dashdraw {
+  from {
+    stroke-dashoffset: 10;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+/* Connection line style during drag */
+.react-flow__connection-line {
+  stroke: rgba(255, 255, 255, 0.5) !important;
+  stroke-width: 2px;
+}
+
+/* Handle styles */
+.react-flow__handle {
+  background: rgba(255, 255, 255, 0.6) !important;
+  border: 1px solid rgba(255, 255, 255, 0.3) !important;
+  width: 12px !important;
+  height: 12px !important;
+}
+
+.react-flow__handle:hover {
+  background: rgba(255, 255, 255, 0.8) !important;
+}
+
+/* Selection box style */
+.react-flow__selection {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+/* Controls panel glass styling */
+.react-flow__controls {
+  background: rgba(0, 0, 0, 0.4) !important;
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+  border-radius: 8px !important;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+}
+
+.react-flow__controls-button {
+  background: transparent !important;
+  border: none !important;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1) !important;
+  fill: rgba(255, 255, 255, 0.6) !important;
+}
+
+.react-flow__controls-button:hover {
+  background: rgba(255, 255, 255, 0.1) !important;
+}
+
+.react-flow__controls-button:last-child {
+  border-bottom: none !important;
+}
+
+/* MiniMap glass styling */
+.react-flow__minimap {
+  background: rgba(0, 0, 0, 0.4) !important;
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+  border-radius: 8px !important;
+}
