@@ -15,11 +15,17 @@ The AI assistant doesn't just answer questions - it generates the exact UI contr
 - **Tool Calling**: Uses Vercel AI SDK v5 tool calling to dynamically render UI components
 - **Initial Values**: AI can set starting values when creating controls (e.g., "add a strong blur" starts at higher intensity)
 - **Glassmorphism HUD Panel**: Floating tool panel overlays the canvas with a modern frosted-glass aesthetic
+- **Smooth Animations**: Framer Motion powers panel entry/exit animations
 
-### Image Processing
+### Image Processing (15 Effects)
 - **Client-Side Processing**: All operations run locally using WebAssembly
-- **Multiple Effects**: Blur, Grayscale, Sepia, and Contrast controls
+- **Comprehensive Effects Suite**:
+  - **Color & Light**: Brightness, Saturation, Hue, Invert
+  - **Detail & Texture**: Blur, Sharpen, Charcoal, Edge Detect, Grayscale
+  - **Artistic**: Sepia, Contrast, Solarize, Vignette
+  - **Geometry & Distortion**: Rotate, Wave
 - **Non-Destructive Pipeline**: Effects apply to the original source image through a unified pipeline
+- **Deterministic Effect Order**: Effects always apply in a consistent order for predictable results
 - **Real-Time Preview**: Debounced processing (300ms) for smooth slider interactions
 - **Aspect Ratio Preservation**: Images scale to fit canvas while maintaining proportions
 - **File Validation**: Supports PNG, JPEG, GIF, and WebP formats
@@ -42,6 +48,8 @@ The AI assistant doesn't just answer questions - it generates the exact UI contr
 - **@imagemagick/magick-wasm** for client-side image processing
 - **Vercel AI SDK v5** with `useChat`, `streamText`, and tool calling
 - **Groq API** with Llama-3.3-70b-versatile model
+- **Zustand** for global state management
+- **Framer Motion** for animations
 - **TypeScript** for type safety
 - **Tailwind CSS** for styling
 - **Lucide React** for icons
@@ -62,15 +70,28 @@ The AI assistant doesn't just answer questions - it generates the exact UI contr
 - Client-side tool call detection via `isToolUIPart` helper
 - Bounded FIFO cache prevents duplicate tool callbacks
 
+**Tool Registry Pattern**:
+- Centralized `TOOL_REGISTRY` follows Open-Closed Principle
+- Each tool defines: id, label, min/max, defaultValue, and execute function
+- `EFFECT_ORDER` array ensures deterministic processing order
+- Adding new tools requires only a registry entry—no pipeline changes
+
+**State Management**:
+- Zustand store manages global app state (image, tools, processing)
+- Shallow equality selectors prevent unnecessary re-renders
+- Actions for tool add/update/remove operations
+
 **Modular Architecture**:
 - `lib/magick.ts` - WebAssembly initialization and image operations
 - `lib/canvas.ts` - Canvas rendering with aspect ratio calculations
 - `lib/validation.ts` - File type validation
 - `lib/chat.ts` - Chat utilities and system message builder
-- `lib/types.ts` - Shared types, tool configs, and state management functions
+- `lib/types.ts` - Shared types and tool state functions
+- `lib/tools-registry.ts` - Centralized tool definitions and effect order
+- `lib/store.ts` - Zustand global state store
 - `app/components/ImageProcessor.tsx` - Main UI with unified effects pipeline
 - `app/components/ChatInterface.tsx` - AI chat with tool call handling
-- `app/components/overlay/ToolPanel.tsx` - Glassmorphism HUD panel
+- `app/components/overlay/ToolPanel.tsx` - Glassmorphism HUD panel with animations
 - `app/components/ui/Slider.tsx` - Reusable slider component
 - `app/api/chat/route.ts` - API route with tool definitions
 
@@ -113,6 +134,8 @@ The project uses a dual testing approach:
 - Blur/effect processing idempotence
 - Tool state management (add, update, remove)
 - Chat message styling consistency
+- Effect order determinism
+- Tool registry integrity
 
 **Unit Testing** with Jest covers specific scenarios:
 - Chat interface rendering and interaction
@@ -138,16 +161,20 @@ npm test
 │   │   │   └── ToolPanel.tsx     # Glassmorphism HUD panel
 │   │   └── ui/
 │   │       └── Slider.tsx        # Reusable slider component
-│   ├── page.tsx                  # Home page with state management
+│   ├── page.tsx                  # Home page with layered z-index layout
 │   └── layout.tsx                # Root layout
 ├── lib/
 │   ├── magick.ts                 # ImageMagick WASM wrapper
 │   ├── canvas.ts                 # Canvas rendering utilities
 │   ├── validation.ts             # File validation logic
 │   ├── chat.ts                   # Chat utilities
-│   └── types.ts                  # Types and tool state functions
+│   ├── types.ts                  # Types and tool state functions
+│   ├── tools-registry.ts         # Centralized tool definitions
+│   ├── store.ts                  # Zustand global state
+│   ├── hooks.ts                  # Custom React hooks
+│   └── utils.ts                  # Utility functions
 ├── __tests__/
-│   ├── properties/               # Property-based tests
+│   ├── properties/               # Property-based tests (20+ test files)
 │   ├── ChatInterface.test.tsx    # Chat component tests
 │   └── chat.test.ts              # Chat utilities tests
 └── public/
@@ -158,7 +185,7 @@ npm test
 
 ### Generative UI Flow
 
-1. **User Request**: "Add a blur effect" or "Make it look soft"
+1. **User Request**: "Add a blur effect" or "Make it look vintage"
 2. **Tool Calling**: The AI invokes `show_tools` with appropriate parameters
 3. **HUD Panel**: Tool controls appear as sliders in the floating panel
 4. **Initial Values**: AI can set starting values based on intent
@@ -169,15 +196,23 @@ npm test
 1. **Initialization**: ImageMagick WASM binary (~8MB) loads on first image upload
 2. **Image Loading**: File is read as Uint8Array and processed for RGBA pixel data
 3. **Canvas Rendering**: Pixels render to canvas, scaled to fit 800×600px max
-4. **Effects Pipeline**: All active tools process through a unified pipeline
+4. **Effects Pipeline**: All active tools process through a unified pipeline in deterministic order
 5. **Debounced Updates**: 300ms debounce prevents excessive computation
+
+### Effect Processing Order
+
+Effects are applied in a consistent order for predictable results:
+1. Geometry (rotate)
+2. Color adjustments (brightness, saturation, hue, invert)
+3. Detail filters (blur, sharpen, charcoal, edge_detect, grayscale)
+4. Artistic effects (sepia, contrast, solarize, vignette, wave)
 
 ### AI Chat Flow
 
 1. **Context Injection**: Current image state (dimensions, active tools, values) sent with each message
 2. **System Message**: API route builds context-aware system prompt
 3. **Tool Detection**: Client monitors for `show_tools` tool calls in response parts
-4. **State Update**: New tools added to activeTools array with initial values
+4. **State Update**: New tools added to activeTools via Zustand store
 
 ## Usage Examples
 
@@ -195,7 +230,29 @@ npm test
 **Natural Language Editing**:
 - "Add a strong blur" → Blur slider at high value
 - "Give me contrast control" → Contrast slider appears
-- "I want to adjust the grayscale" → Grayscale slider added
+- "Make it look vintage" → Sepia + vignette sliders added
+- "I want to sharpen the details" → Sharpen slider added
+- "Rotate it slightly" → Rotate slider appears
+
+## Available Tools
+
+| Tool | Range | Description |
+|------|-------|-------------|
+| Blur | 0-20 | Gaussian blur effect |
+| Grayscale | 0-100 | Desaturation to black & white |
+| Sepia | 0-100 | Warm vintage tone |
+| Contrast | -100 to 100 | Increase/decrease contrast |
+| Brightness | 0-200 | Light intensity (100 = neutral) |
+| Saturation | 0-300 | Color intensity (100 = neutral) |
+| Hue | 0-200 | Color shift (100 = neutral) |
+| Invert | 0-1 | Toggle color inversion |
+| Sharpen | 0-10 | Edge enhancement |
+| Charcoal | 0-10 | Sketch-like effect |
+| Edge Detect | 0-10 | Canny edge detection |
+| Rotate | -180 to 180 | Image rotation in degrees |
+| Wave | 0-100 | Wave distortion effect |
+| Solarize | 0-100 | Partial color inversion |
+| Vignette | 0-100 | Dark corner effect |
 
 ## Browser Compatibility
 
@@ -206,16 +263,16 @@ Requires WebAssembly and SharedArrayBuffer support:
 
 ## Development Roadmap
 
-**Current Version: v0.4** - Generative UI with tool calling
+**Current Version: v0.4** - Generative UI with comprehensive tool suite
 
 ### Completed Features
 - v0.1: ImageMagick WASM initialization and grayscale conversion
 - v0.2: Manual slider controls for blur adjustment
 - v0.3: AI-powered chat with real-time image state awareness
-- v0.4: Generative UI (AI generates controls via tool calling)
+- v0.4: Generative UI with 15 image processing tools
 
 ### Planned Features
-- Additional image operations (brightness, saturation, rotation)
 - Image export functionality
 - Batch processing support
 - Undo/redo functionality
+- Custom tool presets
