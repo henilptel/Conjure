@@ -74,11 +74,7 @@ class DebounceSimulator {
    * Advances time to trigger the debounce timer.
    * In real tests, we use jest.advanceTimersByTime.
    */
-  flush(): Promise<void> {
-    return new Promise(resolve => {
-      setTimeout(resolve, this.debounceMs + 10);
-    });
-  }
+
 }
 
 /**

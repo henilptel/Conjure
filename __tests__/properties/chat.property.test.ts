@@ -10,13 +10,29 @@ import { buildSystemMessage, getMessageClasses } from '@/lib/chat';
 
 /**
  * Arbitrary generator for valid ImageState objects
+ * When hasImage is true, width and height must be non-null integers
+ * When hasImage is false, width and height must be null
  */
-const imageStateArb: fc.Arbitrary<ImageState> = fc.record({
-  hasImage: fc.boolean(),
-  width: fc.option(fc.integer({ min: 1, max: 10000 }), { nil: null }),
-  height: fc.option(fc.integer({ min: 1, max: 10000 }), { nil: null }),
-  blur: fc.integer({ min: 0, max: 100 }),
-  isGrayscale: fc.boolean(),
+const imageStateArb: fc.Arbitrary<ImageState> = fc.boolean().chain((hasImage) => {
+  if (hasImage) {
+    return fc.record({
+      hasImage: fc.constant(true),
+      width: fc.integer({ min: 1, max: 10000 }),
+      height: fc.integer({ min: 1, max: 10000 }),
+      blur: fc.integer({ min: 0, max: 100 }),
+      isGrayscale: fc.boolean(),
+      activeTools: fc.constant([]),
+    });
+  } else {
+    return fc.record({
+      hasImage: fc.constant(false),
+      width: fc.constant(null),
+      height: fc.constant(null),
+      blur: fc.integer({ min: 0, max: 100 }),
+      isGrayscale: fc.boolean(),
+      activeTools: fc.constant([]),
+    });
+  }
 });
 
 /**
@@ -28,6 +44,7 @@ const imageStateWithImageArb: fc.Arbitrary<ImageState> = fc.record({
   height: fc.integer({ min: 1, max: 10000 }),
   blur: fc.integer({ min: 0, max: 100 }),
   isGrayscale: fc.boolean(),
+  activeTools: fc.constant([]),
 });
 
 describe('Property 1: System message contains all context fields', () => {
@@ -90,10 +107,11 @@ describe('Property 1: System message contains all context fields', () => {
       fc.property(
         fc.record({
           hasImage: fc.constant(false),
-          width: fc.option(fc.integer({ min: 1, max: 10000 }), { nil: null }),
-          height: fc.option(fc.integer({ min: 1, max: 10000 }), { nil: null }),
+          width: fc.constant(null),
+          height: fc.constant(null),
           blur: fc.integer({ min: 0, max: 100 }),
           isGrayscale: fc.boolean(),
+          activeTools: fc.constant([]),
         }),
         (imageState) => {
           const systemMessage = buildSystemMessage(imageState);
@@ -111,7 +129,7 @@ describe('Property 1: System message contains all context fields', () => {
       fc.property(imageStateArb, (imageState) => {
         const systemMessage = buildSystemMessage(imageState);
         
-        // Verify all required fields are present
+        // Verify all required labels are present
         expect(systemMessage).toContain('Image loaded:');
         expect(systemMessage).toContain('Dimensions:');
         expect(systemMessage).toContain('Blur level:');
@@ -121,6 +139,13 @@ describe('Property 1: System message contains all context fields', () => {
         expect(systemMessage).toContain(String(imageState.hasImage));
         expect(systemMessage).toContain(String(imageState.blur));
         expect(systemMessage).toContain(String(imageState.isGrayscale));
+        
+        // Verify dimensions content based on hasImage
+        if (imageState.hasImage && imageState.width && imageState.height) {
+          expect(systemMessage).toContain(`${imageState.width}x${imageState.height} pixels`);
+        } else {
+          expect(systemMessage).toContain('No image loaded');
+        }
       }),
       { numRuns: 100 }
     );

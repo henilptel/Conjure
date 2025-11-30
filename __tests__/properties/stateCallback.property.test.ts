@@ -319,8 +319,8 @@ describe('Property 4: State callback propagation', () => {
       );
     });
 
-    it('should handle zero dimensions gracefully', () => {
-      // This tests the edge case where dimensions might be at boundary
+    it('should handle null dimensions for unloaded state', () => {
+      // This tests the edge case where no image is loaded and dimensions are null
       const state: ImageState = {
         hasImage: false,
         width: null,
