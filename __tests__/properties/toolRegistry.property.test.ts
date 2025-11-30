@@ -35,7 +35,7 @@ const EXPECTED_TOOL_IDS = [
   'charcoal',
   'edge_detect',
   'rotate',
-  'implode',
+  'wave',
   'solarize',
   'vignette',
 ];
@@ -255,8 +255,10 @@ interface MockIMagickImage {
   sharpen: (radius: number, sigma: number) => void;
   charcoal: (radius: number, sigma: number) => void;
   edge: (radius: number) => void;
+  cannyEdge: (radius: number, sigma: number, lower: unknown, upper: unknown) => void;
   rotate: (degrees: number) => void;
   implode: (amount: number, method: unknown) => void;
+  wave: (interpolate: unknown, amplitude: number, length: number) => void;
   solarize: (threshold: unknown) => void;
   vignette: (radius: number, sigma: number, x: number, y: number) => void;
 }
@@ -294,11 +296,17 @@ function createMockImage(): MockIMagickImage {
     edge(radius: number) {
       this.methodCalls.push({ method: 'edge', args: [radius] });
     },
+    cannyEdge(radius: number, sigma: number, lower: unknown, upper: unknown) {
+      this.methodCalls.push({ method: 'cannyEdge', args: [radius, sigma, lower, upper] });
+    },
     rotate(degrees: number) {
       this.methodCalls.push({ method: 'rotate', args: [degrees] });
     },
     implode(amount: number, method: unknown) {
       this.methodCalls.push({ method: 'implode', args: [amount, method] });
+    },
+    wave(interpolate: unknown, amplitude: number, length: number) {
+      this.methodCalls.push({ method: 'wave', args: [interpolate, amplitude, length] });
     },
     solarize(threshold: unknown) {
       this.methodCalls.push({ method: 'solarize', args: [threshold] });
@@ -476,7 +484,7 @@ describe('Property 2: Default Value Neutrality', () => {
     // Tools where default 0 means "no effect"
     const noOpAtZeroTools = [
       'blur', 'sepia', 'sharpen', 'charcoal', 'edge_detect',
-      'rotate', 'implode', 'solarize', 'vignette', 'invert',
+      'rotate', 'wave', 'solarize', 'vignette', 'invert',
     ];
     
     fc.assert(

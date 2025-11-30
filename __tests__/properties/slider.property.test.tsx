@@ -138,8 +138,8 @@ describe('Property 4: Slider onChange Callback', () => {
         const input = screen.getByRole('slider');
         fireEvent.change(input, { target: { value: String(newValue) } });
         
-        // Advance timers to trigger debounced callback (default 50ms)
-        jest.advanceTimersByTime(60);
+        // Run all pending timers to trigger debounced callback
+        jest.runAllTimers();
         
         // Verify onChange was called with a number, not a string
         expect(mockOnChange).toHaveBeenCalledWith(newValue);

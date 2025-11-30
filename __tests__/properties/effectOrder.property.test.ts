@@ -24,7 +24,7 @@ const EXPECTED_CATEGORIES = {
   geometry: ['rotate'],
   colorAdjustments: ['brightness', 'saturation', 'hue', 'invert'],
   detailFilters: ['blur', 'sharpen', 'charcoal', 'edge_detect', 'grayscale'],
-  artisticEffects: ['sepia', 'contrast', 'solarize', 'vignette', 'implode'],
+  artisticEffects: ['sepia', 'contrast', 'solarize', 'vignette', 'wave'],
 };
 
 const EXPECTED_ORDER = [

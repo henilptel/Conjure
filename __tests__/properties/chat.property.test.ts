@@ -6,7 +6,7 @@
 
 import * as fc from 'fast-check';
 import { ImageState } from '@/lib/types';
-import { buildSystemMessage, getMessageClasses } from '@/lib/chat';
+import { buildSystemMessage, getMessageClasses, getMessageBubbleClasses } from '@/lib/chat';
 
 /**
  * Arbitrary generator for valid ImageState objects
@@ -231,6 +231,117 @@ describe('Property 2: Message styling differs by role', () => {
         // Classes should never be empty
         expect(classes.length).toBeGreaterThan(0);
         expect(classes.trim()).not.toBe('');
+      }),
+      { numRuns: 100 }
+    );
+  });
+});
+
+
+/**
+ * **Feature: ui-redesign-v07, Property 1: Message styling consistency by role**
+ * **Validates: Requirements 4.4, 4.5**
+ */
+
+/**
+ * Arbitrary generator for message bubble roles (user or assistant only)
+ */
+const messageBubbleRoleArb = fc.constantFrom('user', 'assistant') as fc.Arbitrary<'user' | 'assistant'>;
+
+describe('Property 1: Message styling consistency by role', () => {
+  /**
+   * **Feature: ui-redesign-v07, Property 1: Message styling consistency by role**
+   * 
+   * For any message with a role of 'user' or 'assistant', the getMessageBubbleClasses function
+   * SHALL return the correct styling classes based on the role:
+   * - User messages: classes containing "bg-white" and "text-black"
+   * - Assistant messages: classes containing "bg-transparent" and "text-zinc-200"
+   */
+  it('should return user-specific styling with bg-white and text-black for user messages', () => {
+    fc.assert(
+      fc.property(fc.constant('user' as const), (role) => {
+        const classes = getMessageBubbleClasses(role);
+        
+        // User messages should have white background and black text
+        expect(classes).toContain('bg-white');
+        expect(classes).toContain('text-black');
+      }),
+      { numRuns: 100 }
+    );
+  });
+
+  it('should return assistant-specific styling with bg-transparent and text-zinc-200 for assistant messages', () => {
+    fc.assert(
+      fc.property(fc.constant('assistant' as const), (role) => {
+        const classes = getMessageBubbleClasses(role);
+        
+        // Assistant messages should have transparent background and light text
+        expect(classes).toContain('bg-transparent');
+        expect(classes).toContain('text-zinc-200');
+      }),
+      { numRuns: 100 }
+    );
+  });
+
+  it('should return different classes for user and assistant roles', () => {
+    fc.assert(
+      fc.property(fc.constant(null), () => {
+        const userClasses = getMessageBubbleClasses('user');
+        const assistantClasses = getMessageBubbleClasses('assistant');
+        
+        // Classes should be different for different roles
+        expect(userClasses).not.toBe(assistantClasses);
+      }),
+      { numRuns: 100 }
+    );
+  });
+
+  it('should return consistent classes for the same role', () => {
+    fc.assert(
+      fc.property(messageBubbleRoleArb, (role) => {
+        const classes1 = getMessageBubbleClasses(role);
+        const classes2 = getMessageBubbleClasses(role);
+        
+        // Same role should always produce same classes
+        expect(classes1).toBe(classes2);
+      }),
+      { numRuns: 100 }
+    );
+  });
+
+  it('should produce non-empty class strings for any valid role', () => {
+    fc.assert(
+      fc.property(messageBubbleRoleArb, (role) => {
+        const classes = getMessageBubbleClasses(role);
+        
+        // Classes should never be empty
+        expect(classes.length).toBeGreaterThan(0);
+        expect(classes.trim()).not.toBe('');
+      }),
+      { numRuns: 100 }
+    );
+  });
+
+  it('should include rounded-2xl styling for user messages', () => {
+    fc.assert(
+      fc.property(fc.constant('user' as const), (role) => {
+        const classes = getMessageBubbleClasses(role);
+        
+        // User messages should have rounded corners
+        expect(classes).toContain('rounded-2xl');
+      }),
+      { numRuns: 100 }
+    );
+  });
+
+  it('should include padding classes for both roles', () => {
+    fc.assert(
+      fc.property(messageBubbleRoleArb, (role) => {
+        const classes = getMessageBubbleClasses(role);
+        
+        // Both roles should have padding
+        expect(classes).toContain('px-4');
+        expect(classes).toContain('py-2');
       }),
       { numRuns: 100 }
     );

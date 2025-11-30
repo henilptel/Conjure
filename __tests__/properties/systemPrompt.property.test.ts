@@ -168,7 +168,7 @@ describe('Property 7: System Prompt Tool Coverage', () => {
     'blur', 'grayscale', 'sepia', 'contrast',
     'brightness', 'saturation', 'hue', 'invert',
     'sharpen', 'charcoal', 'edge_detect', 'rotate',
-    'implode', 'solarize', 'vignette'
+    'wave', 'solarize', 'vignette'
   ];
 
   it('should include exactly 15 tools in the system prompt', () => {
