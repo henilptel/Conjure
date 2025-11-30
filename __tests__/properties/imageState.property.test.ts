@@ -16,7 +16,10 @@ const imageStateArb = fc.record({
   height: fc.option(fc.integer({ min: 1, max: 10000 }), { nil: null }),
   blur: fc.integer({ min: 0, max: 100 }),
   isGrayscale: fc.boolean(),
-}).filter(state => state.hasImage || (state.width === null && state.height === null));
+}).filter(state => 
+  (state.hasImage && state.width !== null && state.height !== null) || 
+  (!state.hasImage && state.width === null && state.height === null)
+);
 
 /**
  * Arbitrary generator for state change operations

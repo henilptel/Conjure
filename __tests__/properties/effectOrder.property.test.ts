@@ -2,6 +2,9 @@
  * Property-based tests for Effect Application Order
  * **Feature: optimization-architecture, Property 5: Effect order consistency**
  * **Validates: Requirements 2.4**
+ * 
+ * **Feature: professional-suite, Property 4: Effect Order Completeness**
+ * **Validates: Requirements 5.1, 5.2**
  */
 
 import * as fc from 'fast-check';
@@ -13,6 +16,25 @@ import {
   type ToolDefinition,
 } from '@/lib/tools-registry';
 import type { ActiveTool } from '@/lib/types';
+
+/**
+ * Expected tool categories and their order for Property 4
+ */
+const EXPECTED_CATEGORIES = {
+  geometry: ['rotate'],
+  colorAdjustments: ['brightness', 'saturation', 'hue', 'invert'],
+  detailFilters: ['blur', 'sharpen', 'charcoal', 'edge_detect', 'grayscale'],
+  artisticEffects: ['sepia', 'contrast', 'solarize', 'vignette', 'implode'],
+};
+
+const EXPECTED_ORDER = [
+  ...EXPECTED_CATEGORIES.geometry,
+  ...EXPECTED_CATEGORIES.colorAdjustments,
+  ...EXPECTED_CATEGORIES.detailFilters,
+  ...EXPECTED_CATEGORIES.artisticEffects,
+];
+
+const EXPECTED_TOOL_COUNT = 15;
 
 const validToolIds = getAllToolIds();
 
@@ -160,8 +182,14 @@ describe('Property 5: Effect order consistency', () => {
           expect(sorted2).toEqual(sorted3);
           expect(sorted3).toEqual(sorted4);
           
-          // And the order should match EFFECT_ORDER
-          expect(sorted1.map(t => t.id)).toEqual(EFFECT_ORDER);
+          // Validate relative ordering: for each pair of tool ids in the sorted result,
+          // their relative order should match their relative order in EFFECT_ORDER
+          const sortedIds = sorted1.map(t => t.id);
+          const expectedToolIds = ['blur', 'grayscale', 'sepia', 'contrast'];
+          
+          // Filter EFFECT_ORDER to only the tools present in this test
+          const filteredEffectOrder = EFFECT_ORDER.filter(id => expectedToolIds.includes(id));
+          expect(sortedIds).toEqual(filteredEffectOrder);
         }
       ),
       { numRuns: 100 }
@@ -228,5 +256,199 @@ describe('Property 5: Effect order consistency', () => {
   it('empty tool arrays remain empty after sorting', () => {
     const sorted = sortToolsByEffectOrder([]);
     expect(sorted).toEqual([]);
+  });
+});
+
+/**
+ * **Feature: professional-suite, Property 4: Effect Order Completeness**
+ * **Validates: Requirements 5.1, 5.2**
+ * 
+ * For any inspection of EFFECT_ORDER, the array SHALL contain exactly 15 entries
+ * corresponding to all registered tools, ordered as: geometry tools first, then
+ * color adjustments, then detail filters, then artistic effects.
+ */
+describe('Property 4: Effect Order Completeness', () => {
+  it('EFFECT_ORDER contains exactly 15 entries', () => {
+    fc.assert(
+      fc.property(
+        fc.constant(EFFECT_ORDER),
+        (effectOrder) => {
+          expect(effectOrder.length).toBe(EXPECTED_TOOL_COUNT);
+        }
+      ),
+      { numRuns: 100 }
+    );
+  });
+
+  it('EFFECT_ORDER contains all registered tools', () => {
+    fc.assert(
+      fc.property(
+        fc.constantFrom(...getAllToolIds()),
+        (toolId) => {
+          // Every tool in the registry should be in EFFECT_ORDER
+          expect(EFFECT_ORDER).toContain(toolId);
+        }
+      ),
+      { numRuns: 100 }
+    );
+  });
+
+  it('all EFFECT_ORDER entries exist in TOOL_REGISTRY', () => {
+    fc.assert(
+      fc.property(
+        fc.constantFrom(...EFFECT_ORDER),
+        (toolId) => {
+          // Every tool in EFFECT_ORDER should exist in the registry
+          expect(getToolConfig(toolId)).toBeDefined();
+        }
+      ),
+      { numRuns: 100 }
+    );
+  });
+
+  it('EFFECT_ORDER matches expected order exactly', () => {
+    fc.assert(
+      fc.property(
+        fc.constant(EFFECT_ORDER),
+        (effectOrder) => {
+          expect([...effectOrder]).toEqual(EXPECTED_ORDER);
+        }
+      ),
+      { numRuns: 100 }
+    );
+  });
+
+  it('geometry tools come first in EFFECT_ORDER', () => {
+    fc.assert(
+      fc.property(
+        fc.constantFrom(...EXPECTED_CATEGORIES.geometry),
+        (geometryTool) => {
+          const geometryIndex = EFFECT_ORDER.indexOf(geometryTool);
+          
+          // Geometry tools should come before all other categories
+          const allOtherTools = [
+            ...EXPECTED_CATEGORIES.colorAdjustments,
+            ...EXPECTED_CATEGORIES.detailFilters,
+            ...EXPECTED_CATEGORIES.artisticEffects,
+          ];
+          
+          for (const otherTool of allOtherTools) {
+            const otherIndex = EFFECT_ORDER.indexOf(otherTool);
+            expect(geometryIndex).toBeLessThan(otherIndex);
+          }
+        }
+      ),
+      { numRuns: 100 }
+    );
+  });
+
+  it('color adjustments come after geometry and before detail filters', () => {
+    fc.assert(
+      fc.property(
+        fc.constantFrom(...EXPECTED_CATEGORIES.colorAdjustments),
+        (colorTool) => {
+          const colorIndex = EFFECT_ORDER.indexOf(colorTool);
+          
+          // Color tools should come after geometry
+          for (const geometryTool of EXPECTED_CATEGORIES.geometry) {
+            const geometryIndex = EFFECT_ORDER.indexOf(geometryTool);
+            expect(colorIndex).toBeGreaterThan(geometryIndex);
+          }
+          
+          // Color tools should come before detail filters and artistic effects
+          const laterTools = [
+            ...EXPECTED_CATEGORIES.detailFilters,
+            ...EXPECTED_CATEGORIES.artisticEffects,
+          ];
+          
+          for (const laterTool of laterTools) {
+            const laterIndex = EFFECT_ORDER.indexOf(laterTool);
+            expect(colorIndex).toBeLessThan(laterIndex);
+          }
+        }
+      ),
+      { numRuns: 100 }
+    );
+  });
+
+  it('detail filters come after color adjustments and before artistic effects', () => {
+    fc.assert(
+      fc.property(
+        fc.constantFrom(...EXPECTED_CATEGORIES.detailFilters),
+        (detailTool) => {
+          const detailIndex = EFFECT_ORDER.indexOf(detailTool);
+          
+          // Detail tools should come after geometry and color adjustments
+          const earlierTools = [
+            ...EXPECTED_CATEGORIES.geometry,
+            ...EXPECTED_CATEGORIES.colorAdjustments,
+          ];
+          
+          for (const earlierTool of earlierTools) {
+            const earlierIndex = EFFECT_ORDER.indexOf(earlierTool);
+            expect(detailIndex).toBeGreaterThan(earlierIndex);
+          }
+          
+          // Detail tools should come before artistic effects
+          for (const artisticTool of EXPECTED_CATEGORIES.artisticEffects) {
+            const artisticIndex = EFFECT_ORDER.indexOf(artisticTool);
+            expect(detailIndex).toBeLessThan(artisticIndex);
+          }
+        }
+      ),
+      { numRuns: 100 }
+    );
+  });
+
+  it('artistic effects come last in EFFECT_ORDER', () => {
+    fc.assert(
+      fc.property(
+        fc.constantFrom(...EXPECTED_CATEGORIES.artisticEffects),
+        (artisticTool) => {
+          const artisticIndex = EFFECT_ORDER.indexOf(artisticTool);
+          
+          // Artistic tools should come after all other categories
+          const allEarlierTools = [
+            ...EXPECTED_CATEGORIES.geometry,
+            ...EXPECTED_CATEGORIES.colorAdjustments,
+            ...EXPECTED_CATEGORIES.detailFilters,
+          ];
+          
+          for (const earlierTool of allEarlierTools) {
+            const earlierIndex = EFFECT_ORDER.indexOf(earlierTool);
+            expect(artisticIndex).toBeGreaterThan(earlierIndex);
+          }
+        }
+      ),
+      { numRuns: 100 }
+    );
+  });
+
+  it('EFFECT_ORDER has no duplicate entries', () => {
+    fc.assert(
+      fc.property(
+        fc.constant(EFFECT_ORDER),
+        (effectOrder) => {
+          const uniqueEntries = new Set(effectOrder);
+          expect(uniqueEntries.size).toBe(effectOrder.length);
+        }
+      ),
+      { numRuns: 100 }
+    );
+  });
+
+  it('TOOL_REGISTRY and EFFECT_ORDER have the same tool count', () => {
+    fc.assert(
+      fc.property(
+        fc.constant(null),
+        () => {
+          const registryCount = getAllToolIds().length;
+          const effectOrderCount = EFFECT_ORDER.length;
+          expect(registryCount).toBe(effectOrderCount);
+          expect(registryCount).toBe(EXPECTED_TOOL_COUNT);
+        }
+      ),
+      { numRuns: 100 }
+    );
   });
 });
