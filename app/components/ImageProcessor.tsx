@@ -3,7 +3,7 @@
 import { useState, useRef, ChangeEvent, useLayoutEffect, useEffect } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Upload } from 'lucide-react';
+import { Upload, RotateCcw } from 'lucide-react';
 import { validateImageFile, FileValidationResult } from '@/lib/validation';
 import { initializeMagick, ImageEngine, ImageData } from '@/lib/magick';
 import { renderImageToCanvas } from '@/lib/canvas';
@@ -46,10 +46,11 @@ export default function ImageProcessor() {
   const activeTools = useAppStore((state) => state.activeTools);
   
   // Subscribe to actions separately (these are stable references)
-  const { setImageState, setProcessingStatus } = useAppStore(
+  const { setImageState, setProcessingStatus, resetTools } = useAppStore(
     useShallow((state) => ({
       setImageState: state.setImageState,
       setProcessingStatus: state.setProcessingStatus,
+      resetTools: state.resetTools,
     }))
   );
   
@@ -326,6 +327,25 @@ export default function ImageProcessor() {
       {/* ToolPanel - positioned absolute bottom-center (Requirements: 3.5) */}
       {state.hasImage && (
         <ToolPanel disabled={isProcessing} />
+      )}
+
+      {/* Reset Button - positioned at bottom left */}
+      {state.hasImage && activeTools.length > 0 && (
+        <button
+          onClick={resetTools}
+          disabled={isProcessing}
+          className={cn(
+            "absolute bottom-4 left-4 md:bottom-6 md:left-6",
+            "flex items-center gap-2 px-3 py-2 rounded-xl",
+            "backdrop-blur-md border border-white/10 text-sm",
+            isProcessing
+              ? "bg-black/20 text-zinc-500 cursor-not-allowed"
+              : "bg-black/40 text-zinc-200 hover:bg-black/60 transition-colors cursor-pointer"
+          )}
+        >
+          <RotateCcw className="w-4 h-4" />
+          Reset
+        </button>
       )}
     </div>
   );
