@@ -101,3 +101,67 @@ export function createToolConfig(toolName: string): ActiveTool | null {
     max: config.max,
   };
 }
+
+/**
+ * Adds new tools to the active tools array.
+ * Filters out duplicates (tools already present and within newToolNames) and invalid tool names.
+ * Preserves existing tools and their current values.
+ * 
+ * @param currentTools - The current array of active tools
+ * @param newToolNames - Array of tool names to add
+ * @returns New array with existing tools preserved and new tools added
+ * 
+ * Requirements: 1.1, 1.3
+ */
+export function addTools(currentTools: ActiveTool[], newToolNames: string[]): ActiveTool[] {
+  const existingIds = new Set(currentTools.map(t => t.id));
+  
+  // Deduplicate newToolNames and filter out already existing tools
+  const uniqueNewNames = [...new Set(newToolNames)].filter(name => !existingIds.has(name));
+  
+  const newTools = uniqueNewNames
+    .map(name => createToolConfig(name))    // Create tool configs
+    .filter((tool): tool is ActiveTool => tool !== null); // Filter out invalid tools
+  
+  return [...currentTools, ...newTools];
+}
+
+
+/**
+ * Updates the value of a specific tool in the active tools array.
+ * Clamps the value to the tool's min/max range.
+ * Returns a new array with only the specified tool updated.
+ * 
+ * @param tools - The current array of active tools
+ * @param toolId - The id of the tool to update
+ * @param newValue - The new value to set
+ * @returns New array with the specified tool's value updated
+ * 
+ * Requirements: 5.1
+ */
+export function updateToolValue(tools: ActiveTool[], toolId: string, newValue: number): ActiveTool[] {
+  return tools.map(tool => {
+    if (tool.id !== toolId) {
+      return tool;
+    }
+    // Clamp value to tool's min/max range
+    const clampedValue = Math.max(tool.min, Math.min(tool.max, newValue));
+    return { ...tool, value: clampedValue };
+  });
+}
+
+
+/**
+ * Removes a tool from the active tools array.
+ * Returns a new array without the specified tool.
+ * If the tool id doesn't exist, returns the original array unchanged.
+ * 
+ * @param tools - The current array of active tools
+ * @param toolId - The id of the tool to remove
+ * @returns New array without the specified tool
+ * 
+ * Requirements: 4.2
+ */
+export function removeTool(tools: ActiveTool[], toolId: string): ActiveTool[] {
+  return tools.filter(tool => tool.id !== toolId);
+}
