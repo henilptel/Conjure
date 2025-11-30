@@ -90,6 +90,7 @@ describe('Property 7: Toast Auto-Dismiss', () => {
     );
   });
 
+  it('shouldAutoDismiss returns false when elapsed time < autoDismissMs', () => {
     fc.assert(
       fc.property(
         toastMessageArb,
@@ -104,6 +105,7 @@ describe('Property 7: Toast Auto-Dismiss', () => {
       ),
       { numRuns: 100 }
     );
+  });
 
   it('getExpiredToasts returns only toasts that have exceeded autoDismissMs', () => {
     fc.assert(

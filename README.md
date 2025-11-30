@@ -90,7 +90,6 @@ The AI assistant doesn't just answer questions - it generates the exact UI contr
 - `lib/tools-registry.ts` - Centralized tool definitions and effect order
 - `lib/store.ts` - Zustand global state store
 - `app/components/ImageProcessor.tsx` - Main UI with unified effects pipeline
-- `app/components/ChatInterface.tsx` - AI chat with tool call handling
 - `app/components/overlay/ToolPanel.tsx` - Glassmorphism HUD panel with animations
 - `app/components/ui/Slider.tsx` - Reusable slider component
 - `app/api/chat/route.ts` - API route with tool definitions
@@ -155,7 +154,6 @@ npm test
 │   ├── api/chat/route.ts         # Groq API with show_tools tool
 │   ├── components/
 │   │   ├── ImageProcessor.tsx    # Main processor with effects pipeline
-│   │   ├── ChatInterface.tsx     # AI chat with tool call handling
 │   │   ├── LoadingIndicator.tsx  # Loading state component
 │   │   ├── overlay/
 │   │   │   └── ToolPanel.tsx     # Glassmorphism HUD panel
@@ -175,7 +173,6 @@ npm test
 │   └── utils.ts                  # Utility functions
 ├── __tests__/
 │   ├── properties/               # Property-based tests (20+ test files)
-│   ├── ChatInterface.test.tsx    # Chat component tests
 │   └── chat.test.ts              # Chat utilities tests
 └── public/
     └── magick.wasm               # ImageMagick WebAssembly binary

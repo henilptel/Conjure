@@ -36,8 +36,7 @@ function isClientError(error: unknown): { isClient: boolean; status: number; mes
   if (error instanceof TypeError) {
     return { isClient: true, status: 400, message: 'Missing or invalid required fields' };
   }
-   
-   return { isClient: false, status: 500, message: 'Internal server error' };
+
   return { isClient: false, status: 500, message: 'Internal server error' };
 }
 

@@ -46,8 +46,6 @@ export const TOOL_CONFIGS: Record<string, ToolConfig> = Object.fromEntries(
 
 /**
  * Represents the current state of the image being processed.
- * This state is shared between ImageProcessor and ChatInterface
- * to enable context-aware AI responses.
  */
 export interface ImageState {
   /** Whether an image is currently loaded */

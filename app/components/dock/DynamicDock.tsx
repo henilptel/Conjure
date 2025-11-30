@@ -10,6 +10,9 @@ import GhostToast, { addToast, removeToast, ToastMessage } from './GhostToast';
 import ChatHistory from './ChatHistory';
 import { ImageState } from '@/lib/types';
 
+// Create transport once at module level to avoid creating a new instance on every render
+const transport = new DefaultChatTransport({ api: '/api/chat' });
+
 // ============================================================================
 // Types (kept for backwards compatibility with tests)
 // ============================================================================
@@ -106,7 +109,7 @@ export default function DynamicDock({ disabled = false }: DynamicDockProps) {
   }, []);
   
   const { messages, sendMessage, status } = useChat({
-    transport: new DefaultChatTransport({ api: '/api/chat' }),
+    transport,
   });
   
   // Clear processed IDs cache when messages are reset (empty array) or on unmount
