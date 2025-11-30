@@ -29,6 +29,8 @@ export interface ScaledDimensions {
 export interface CanvasRenderCache {
   /** Cached OffscreenCanvas for intermediate rendering */
   offscreenCanvas: OffscreenCanvas | HTMLCanvasElement | null;
+  /** Cached offscreen canvas context */
+  offscreenCtx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null;
   /** Cached ImageData for pixel transfer */
   imageData: ImageData | null;
   /** Cached dimensions of the ImageData */
@@ -42,6 +44,7 @@ export interface CanvasRenderCache {
 export function createCanvasRenderCache(): CanvasRenderCache {
   return {
     offscreenCanvas: null,
+    offscreenCtx: null,
     imageData: null,
     cachedWidth: 0,
     cachedHeight: 0,
@@ -141,17 +144,17 @@ export function renderImageToCanvas(
       cache.offscreenCanvas = offscreen;
     }
     
+    // Cache the offscreen context
+    cache.offscreenCtx = cache.offscreenCanvas.getContext('2d') as
+      CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D;
+    
     // Create new ImageData with matching dimensions
     cache.imageData = new ImageData(width, height);
     cache.cachedWidth = width;
     cache.cachedHeight = height;
   }
   
-  // Get offscreen context
-  const offscreenCtx = cache.offscreenCanvas!.getContext('2d') as 
-    CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D;
-  
-  if (!offscreenCtx) {
+  if (!cache.offscreenCtx) {
     throw new Error('Failed to get offscreen canvas context');
   }
   
@@ -159,8 +162,8 @@ export function renderImageToCanvas(
   const imageData = cache.imageData!;
   imageData.data.set(new Uint8ClampedArray(pixels.buffer, pixels.byteOffset, pixels.byteLength));
   
-  // Put image data on offscreen canvas
-  offscreenCtx.putImageData(imageData, 0, 0);
+  // Put image data on offscreen canvas using cached context
+  cache.offscreenCtx.putImageData(imageData, 0, 0);
   
   // Draw scaled image to main canvas
   ctx.drawImage(cache.offscreenCanvas as CanvasImageSource, 0, 0, scaled.width, scaled.height);

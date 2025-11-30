@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, memo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   ChevronUp,
@@ -24,7 +24,6 @@ import {
 } from 'lucide-react';
 import { useAppStore } from '@/lib/store';
 import { getToolConfig } from '@/lib/tools-registry';
-import { useDebouncedCallback } from '@/lib/hooks';
 import Slider from '@/app/components/ui/Slider';
 
 // ============================================================================
@@ -100,17 +99,10 @@ export default function ActiveToolsPanel({ disabled = false, onToolSelect }: Act
   const [isExpanded, setIsExpanded] = useState(false);
   const [expandedToolId, setExpandedToolId] = useState<string | null>(null);
 
-  // Debounced tool value update
-  const debouncedUpdateTool = useDebouncedCallback(
-    useCallback((toolId: string, value: number) => {
-      updateToolValue(toolId, value);
-    }, [updateToolValue]),
-    150
-  );
-
+  // Direct update - Slider component already handles debouncing internally
   const handleSliderChange = useCallback((toolId: string, value: number) => {
-    debouncedUpdateTool(toolId, value);
-  }, [debouncedUpdateTool]);
+    updateToolValue(toolId, value);
+  }, [updateToolValue]);
 
   const handleRemoveTool = useCallback((toolId: string, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -252,7 +244,7 @@ interface ToolItemProps {
   onSliderChange: (value: number) => void;
 }
 
-function ToolItem({
+const ToolItem = memo(function ToolItem({
   tool,
   icon: Icon,
   isExpanded,
@@ -337,4 +329,4 @@ function ToolItem({
       </AnimatePresence>
     </div>
   );
-}
+});

@@ -8,7 +8,6 @@ import { validateImageFile, FileValidationResult } from '@/lib/validation';
 import { initializeMagick, ImageEngine, ImageData } from '@/lib/magick';
 import { renderImageToCanvas, createCanvasRenderCache, CanvasRenderCache } from '@/lib/canvas';
 import { useAppStore } from '@/lib/store';
-import { useCompareMode } from '@/lib/hooks';
 import { cn } from '@/lib/utils';
 import LoadingIndicator from './LoadingIndicator';
 
@@ -57,8 +56,7 @@ export default function ImageProcessor() {
     }))
   );
   
-  // Initialize compare mode keyboard handler (Requirements: 6.1, 6.2, 6.4)
-  useCompareMode();
+  // Note: useCompareMode() is called in page.tsx - no need to call here
   
   const [state, setState] = useState<ImageProcessorState>({
     status: 'idle',
