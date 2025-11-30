@@ -2,11 +2,12 @@
 
 import { useState, useRef, ChangeEvent, useLayoutEffect, useEffect, useCallback } from 'react';
 import { validateImageFile, FileValidationResult } from '@/lib/validation';
-import { initializeMagick, readImageData, convertToGrayscale, blurImage, ImageData } from '@/lib/magick';
+import { initializeMagick, readImageData, convertToGrayscale, blurImage, applyEffectsPipeline, ImageData } from '@/lib/magick';
 import { renderImageToCanvas } from '@/lib/canvas';
-import { ImageState } from '@/lib/types';
+import { ImageState, ActiveTool } from '@/lib/types';
 import LoadingIndicator from './LoadingIndicator';
 import Slider from './ui/Slider';
+import ToolPanel from './overlay/ToolPanel';
 
 type ProcessingStatus = 'idle' | 'initializing' | 'processing' | 'complete' | 'error';
 
@@ -18,9 +19,17 @@ interface ImageProcessorState {
 
 interface ImageProcessorProps {
   onStateChange?: (state: ImageState) => void;
+  activeTools?: ActiveTool[];
+  onToolUpdate?: (id: string, value: number) => void;
+  onToolRemove?: (id: string) => void;
 }
 
-export default function ImageProcessor({ onStateChange }: ImageProcessorProps) {
+export default function ImageProcessor({ 
+  onStateChange,
+  activeTools = [],
+  onToolUpdate,
+  onToolRemove,
+}: ImageProcessorProps) {
   const [state, setState] = useState<ImageProcessorState>({
     status: 'idle',
     error: null,
@@ -53,11 +62,12 @@ export default function ImageProcessor({ onStateChange }: ImageProcessorProps) {
         height: sourceImageData?.height ?? null,
         blur,
         isGrayscale,
+        activeTools,
         ...updates,
       };
       onStateChange(currentState);
     }
-  }, [onStateChange, state.hasImage, sourceImageData, blur, isGrayscale]);
+  }, [onStateChange, state.hasImage, sourceImageData, blur, isGrayscale, activeTools]);
 
   // Notify parent when blur changes
   useEffect(() => {
@@ -68,10 +78,11 @@ export default function ImageProcessor({ onStateChange }: ImageProcessorProps) {
         height: sourceImageData.height,
         blur,
         isGrayscale,
+        activeTools,
       };
       onStateChange(currentState);
     }
-  }, [blur, state.hasImage, sourceImageData, isGrayscale, onStateChange]);
+  }, [blur, state.hasImage, sourceImageData, isGrayscale, activeTools, onStateChange]);
 
   // Render image to canvas when imageData changes
   useLayoutEffect(() => {
@@ -139,6 +150,53 @@ export default function ImageProcessor({ onStateChange }: ImageProcessorProps) {
 
     return () => clearTimeout(timeoutId);
   }, [blur, sourceImageData, applyBlur]);
+
+  // Operation counter for activeTools pipeline race condition prevention
+  const pipelineOperationRef = useRef(0);
+
+  // Debounced effect pipeline processing based on activeTools
+  // This applies all active effects in a consistent order: blur → grayscale → sepia → contrast
+  useEffect(() => {
+    const source = sourceImageDataRef.current;
+    if (!source) return;
+    
+    // Only process if there are active tools
+    if (activeTools.length === 0) return;
+
+    // Increment operation counter to invalidate any in-flight operations
+    const operationId = ++pipelineOperationRef.current;
+
+    const timeoutId = setTimeout(async () => {
+      // Re-check source in case it changed during debounce
+      const currentSource = sourceImageDataRef.current;
+      if (!currentSource) return;
+      
+      // Skip if operation was superseded
+      if (pipelineOperationRef.current !== operationId) return;
+
+      setState(prev => ({ ...prev, error: null, status: 'processing' }));
+
+      try {
+        const processedData = await applyEffectsPipeline(currentSource, activeTools);
+        
+        // Only apply if this is still the latest operation
+        if (pipelineOperationRef.current === operationId) {
+          setImageData({ ...processedData });
+          setState(prev => ({ ...prev, status: 'complete' }));
+        }
+      } catch (err) {
+        // Only show error if this is still the latest operation
+        if (pipelineOperationRef.current === operationId) {
+          const errorMessage = err instanceof Error 
+            ? err.message 
+            : 'Failed to apply effects. Please try again.';
+          setState(prev => ({ ...prev, error: errorMessage, status: 'error' }));
+        }
+      }
+    }, 300); // 300ms debounce for performance
+
+    return () => clearTimeout(timeoutId);
+  }, [activeTools, sourceImageData]);
 
   const handleFileSelect = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -328,10 +386,22 @@ export default function ImageProcessor({ onStateChange }: ImageProcessorProps) {
       {/* Canvas for Image Display */}
       {state.hasImage && (
         <div className="w-full flex flex-col items-center gap-4">
-          <canvas
-            ref={canvasRef}
-            className="max-w-full border border-zinc-200 dark:border-zinc-700 rounded-lg shadow-sm"
-          />
+          {/* Relative container for canvas and ToolPanel overlay */}
+          <div className="relative">
+            <canvas
+              ref={canvasRef}
+              className="max-w-full border border-zinc-200 dark:border-zinc-700 rounded-lg shadow-sm"
+            />
+            {/* ToolPanel overlay - positioned at bottom-center of canvas */}
+            {onToolUpdate && onToolRemove && (
+              <ToolPanel
+                tools={activeTools}
+                onToolUpdate={onToolUpdate}
+                onToolRemove={onToolRemove}
+                disabled={isProcessing}
+              />
+            )}
+          </div>
           
           {/* Grayscale Button */}
           <button

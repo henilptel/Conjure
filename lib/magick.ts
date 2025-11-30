@@ -2,7 +2,7 @@
  * Magick.WASM initialization and image processing utilities
  */
 
-import { ImageMagick, initializeImageMagick, MagickFormat } from '@imagemagick/magick-wasm';
+import { ImageMagick, initializeImageMagick, MagickFormat, Percentage } from '@imagemagick/magick-wasm';
 
 let isInitialized = false;
 let initializationPromise: Promise<void> | null = null;
@@ -204,6 +204,138 @@ export function blurImage(data: ImageData, radius: number): Promise<ImageData> {
       });
     } catch {
       reject(new Error('Failed to apply blur effect'));
+    }
+  });
+}
+
+import type { ActiveTool } from './types';
+
+/**
+ * Effect application order for consistent results
+ * Effects are applied in this order: blur → grayscale → sepia → contrast
+ */
+const EFFECT_ORDER = ['blur', 'grayscale', 'sepia', 'contrast'] as const;
+
+/**
+ * Applies multiple effects to an image in a single read/write cycle.
+ * Effects are applied in a consistent order: blur → grayscale → sepia → contrast
+ * 
+ * NOTE: This is a NON-DESTRUCTIVE preview transformation that preserves originalBytes.
+ * All effects are applied to the original image data, enabling real-time preview
+ * with the ability to return to the original state.
+ * 
+ * @param data - ImageData containing originalBytes for non-destructive editing
+ * @param tools - Array of ActiveTool objects specifying which effects to apply and their values
+ * @returns Promise<ImageData> with all effects applied and preserved originalBytes
+ * 
+ * Requirements: 5.2, 5.3
+ */
+export function applyEffectsPipeline(data: ImageData, tools: ActiveTool[]): Promise<ImageData> {
+  if (!isInitialized) {
+    return Promise.reject(new Error('Magick.WASM is not initialized'));
+  }
+
+  // If no tools, return original image
+  if (tools.length === 0) {
+    return new Promise((resolve, reject) => {
+      try {
+        ImageMagick.read(data.originalBytes, (image) => {
+          const width = image.width;
+          const height = image.height;
+          image.write(MagickFormat.Rgba, (pixels) => {
+            resolve({
+              pixels: new Uint8Array(pixels),
+              width,
+              height,
+              originalBytes: data.originalBytes
+            });
+          });
+        });
+      } catch {
+        reject(new Error('Failed to read image data'));
+      }
+    });
+  }
+
+  // Create a map of tool id to value for quick lookup
+  const toolValues = new Map(tools.map(t => [t.id, t.value]));
+
+  // Sort tools by effect order for consistent application
+  const sortedTools = [...tools].sort((a, b) => {
+    const aIndex = EFFECT_ORDER.indexOf(a.id as typeof EFFECT_ORDER[number]);
+    const bIndex = EFFECT_ORDER.indexOf(b.id as typeof EFFECT_ORDER[number]);
+    return aIndex - bIndex;
+  });
+
+  return new Promise((resolve, reject) => {
+    try {
+      ImageMagick.read(data.originalBytes, (image) => {
+        const width = image.width;
+        const height = image.height;
+
+        // Apply effects in order
+        for (const tool of sortedTools) {
+          const value = toolValues.get(tool.id) ?? tool.value;
+          
+          switch (tool.id) {
+            case 'blur':
+              if (value > 0) {
+                // Apply Gaussian blur - blur(0, sigma) lets ImageMagick auto-calculate kernel size
+                image.blur(0, value);
+              }
+              break;
+            case 'grayscale':
+              if (value > 0) {
+                // Apply grayscale with intensity (0-100)
+                // For full grayscale at 100, partial at lower values
+                if (value >= 100) {
+                  image.grayscale();
+                } else {
+                  // Partial grayscale using modulate (reduce saturation)
+                  // modulate takes Percentage objects
+                  const saturation = new Percentage(100 - value);
+                  image.modulate(new Percentage(100), saturation, new Percentage(100));
+                }
+              }
+              break;
+            case 'sepia':
+              if (value > 0) {
+                // Apply sepia tone effect
+                // SepiaTone takes a Percentage threshold
+                image.sepiaTone(new Percentage(value));
+              }
+              break;
+            case 'contrast':
+              if (value !== 0) {
+                // Apply contrast adjustment (-100 to 100)
+                // Use brightness/contrast approach for simpler API
+                // Positive values increase contrast, negative decrease
+                // Map -100 to 100 range to appropriate contrast values
+                if (value > 0) {
+                  // Increase contrast - use contrast method
+                  image.contrast();
+                } else {
+                  // Decrease contrast - use level to reduce dynamic range
+                  // This is a simplified approach
+                  image.level(new Percentage(10), new Percentage(90));
+                }
+              }
+              break;
+          }
+        }
+
+        // Write to RGBA for canvas rendering
+        image.write(MagickFormat.Rgba, (pixels) => {
+          resolve({
+            pixels: new Uint8Array(pixels),
+            width,
+            height,
+            originalBytes: data.originalBytes // NON-DESTRUCTIVE: Preserve original
+          });
+        });
+      });
+    } catch {
+      reject(new Error('Failed to apply effects pipeline'));
     }
   });
 }
