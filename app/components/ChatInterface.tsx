@@ -1,27 +1,66 @@
 'use client';
 
-import { useState, FormEvent, ChangeEvent } from 'react';
+import { useState, FormEvent, ChangeEvent, useEffect, useRef } from 'react';
 import { useChat } from '@ai-sdk/react';
-import { DefaultChatTransport, UIMessage } from 'ai';
+import { DefaultChatTransport, UIMessage, isToolUIPart, getToolName } from 'ai';
 import { ImageState } from '@/lib/types';
 import { getMessageClasses } from '@/lib/chat';
 import LoadingIndicator from './LoadingIndicator';
 
 interface ChatInterfaceProps {
   imageState: ImageState;
+  onToolCall?: (tools: string[]) => void;
 }
 
 // Create transport once at module level - body will be passed per-request
 const transport = new DefaultChatTransport({ api: '/api/chat' });
 
-export default function ChatInterface({ imageState }: ChatInterfaceProps) {
+export default function ChatInterface({ imageState, onToolCall }: ChatInterfaceProps) {
   const [input, setInput] = useState('');
+  // Track processed tool call IDs to avoid duplicate callbacks
+  const processedToolCallsRef = useRef<Set<string>>(new Set());
 
   const { messages, sendMessage, status, error } = useChat({
     transport,
   });
 
   const isLoading = status === 'submitted' || status === 'streaming';
+
+  // Handle tool calls from streaming response
+  // Detect show_tools tool call in message parts and invoke onToolCall callback
+  // Requirements: 1.1, 7.4
+  useEffect(() => {
+    if (!onToolCall) return;
+
+    // Scan all messages for tool calls
+    for (const message of messages) {
+      if (message.role !== 'assistant' || !message.parts) continue;
+
+      for (const part of message.parts) {
+        // Check if this is a tool UI part using the helper
+        if (isToolUIPart(part)) {
+          const toolName = getToolName(part);
+          
+          // Only process show_tools tool calls
+          if (toolName === 'show_tools') {
+            // Skip if already processed
+            if (processedToolCallsRef.current.has(part.toolCallId)) continue;
+            
+            // Only process when output is available (tool execution complete)
+            if (part.state === 'output-available') {
+              processedToolCallsRef.current.add(part.toolCallId);
+              
+              // Extract tools_to_show from the tool input
+              const toolInput = part.input as { tools_to_show?: string[] };
+              if (toolInput?.tools_to_show && Array.isArray(toolInput.tools_to_show)) {
+                onToolCall(toolInput.tools_to_show);
+              }
+            }
+          }
+        }
+      }
+    }
+  }, [messages, onToolCall]);
 
   const handleInputChange = (e: ChangeEvent<HTMLInputElement>) => {
     setInput(e.target.value);
