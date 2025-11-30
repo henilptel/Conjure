@@ -1,7 +1,19 @@
 import { createGroq } from '@ai-sdk/groq';
-import { streamText, UIMessage } from 'ai';
+import { streamText, UIMessage, tool } from 'ai';
+import { z } from 'zod';
 import { buildSystemMessage } from '@/lib/chat';
-import { ImageState } from '@/lib/types';
+import { ImageState, TOOL_CONFIGS } from '@/lib/types';
+
+/**
+ * Zod schema for the show_tools tool.
+ * Defines tools_to_show as an array of enum values.
+ * Requirements: 7.1, 7.2
+ */
+const showToolsSchema = z.object({
+  tools_to_show: z.array(
+    z.enum(['blur', 'grayscale', 'sepia', 'contrast'])
+  ).describe('Array of tool identifiers to display in the HUD panel'),
+});
 
 export async function POST(req: Request) {
   // Check for API key
@@ -54,11 +66,32 @@ export async function POST(req: Request) {
       })
       .filter(m => m.content.trim().length > 0);
 
-    // Stream response using llama-3.3-70b-versatile
+    // Stream response using llama-3.3-70b-versatile with show_tools tool
+    // Requirements: 7.4
     const result = streamText({
       model: groq('llama-3.3-70b-versatile'),
       system: systemMessage,
       messages: formattedMessages,
+      tools: {
+        show_tools: tool({
+          description: 'Summons image editing tool controls to the HUD panel. Call this when the user requests an image edit.',
+          parameters: showToolsSchema,
+          execute: async ({ tools_to_show }) => {
+            // Return tool configurations for the client to render
+            const toolConfigs = tools_to_show.map(toolName => {
+              const config = TOOL_CONFIGS[toolName];
+              return {
+                id: config.id,
+                label: config.label,
+                min: config.min,
+                max: config.max,
+                defaultValue: config.defaultValue,
+              };
+            });
+            return { tools: toolConfigs };
+          },
+        }),
+      },
     });
 
     // Return UI message stream response (v5 format)

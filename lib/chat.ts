@@ -3,19 +3,44 @@ import { ImageState } from '@/lib/types';
 /**
  * Builds the system message with the current image context.
  * This function is separated for testing purposes.
+ * Updated to instruct AI to use show_tools for edit requests.
+ * Requirements: 7.3
  */
 export function buildSystemMessage(imageContext: ImageState): string {
   const dimensionsText = imageContext.hasImage && imageContext.width && imageContext.height
     ? `${imageContext.width}x${imageContext.height} pixels`
     : 'No image loaded';
 
-  return `You are an AI assistant for an image editing application. 
+  const activeToolsText = imageContext.activeTools && imageContext.activeTools.length > 0
+    ? imageContext.activeTools.map(t => `${t.label}: ${t.value}`).join(', ')
+    : 'None';
+
+  return `You are an AI assistant for an image editing application called MagickFlow.
+
 Current image state:
 - Image loaded: ${imageContext.hasImage}
 - Dimensions: ${dimensionsText}
 - Blur level: ${imageContext.blur}
 - Grayscale: ${imageContext.isGrayscale}
+- Active tools: ${activeToolsText}
 
+IMPORTANT: You have access to a show_tools function that summons editing controls for the user.
+
+Available tools:
+- blur: Applies gaussian blur (0-20)
+- grayscale: Converts to grayscale (0-100%)
+- sepia: Applies sepia tone (0-100%)
+- contrast: Adjusts contrast (-100 to +100)
+
+When the user requests an image edit (like "blur this", "make it vintage", "add contrast"):
+1. Call the show_tools function with the appropriate tool identifiers
+2. Respond with a brief confirmation of which tools you've summoned
+
+For "vintage" or "retro" looks, summon: sepia, contrast
+For "dramatic" looks, summon: contrast, grayscale
+For general edits, summon the specific tool requested
+
+Do NOT describe how to manually adjust settings. Instead, ALWAYS use show_tools to summon the controls.
 Help the user with their image editing questions. When asked about the current state, refer to the values above.`;
 }
 
