@@ -168,6 +168,7 @@ export class ImageEngine {
    * This method should be called once when an image is uploaded.
    * 
    * Thread-safe: Acquires mutex before accessing shared state.
+   * Lock is released after ImageMagick.read callback completes.
    *
    * @param bytes - The raw image file bytes (PNG/JPEG/etc)
    * @returns Promise<ImageData> with initial pixel data for canvas rendering
@@ -182,54 +183,56 @@ export class ImageEngine {
     // Acquire lock before accessing shared state
     await this.mutex.acquire();
 
-    try {
-      // Clear any existing data (Requirements: slider-performance 2.3)
-      // Note: Using internal clear instead of dispose() to avoid re-acquiring lock
-      this.sourceBytes = null;
-      this.cachedPixels = null;
-      this.cachedWidth = 0;
-      this.cachedHeight = 0;
+    // Clear any existing data (Requirements: slider-performance 2.3)
+    // Note: Using internal clear instead of dispose() to avoid re-acquiring lock
+    this.sourceBytes = null;
+    this.cachedPixels = null;
+    this.cachedWidth = 0;
+    this.cachedHeight = 0;
 
-      // Store the original bytes
-      this.sourceBytes = new Uint8Array(bytes);
+    // Store the original bytes
+    this.sourceBytes = new Uint8Array(bytes);
 
-      return await new Promise<ImageData>((resolve, reject) => {
-        try {
-          // Read the image to get dimensions and pixel data
-          ImageMagick.read(this.sourceBytes!, (image) => {
-            const width = image.width;
-            const height = image.height;
+    return new Promise<ImageData>((resolve, reject) => {
+      try {
+        // Read the image to get dimensions and pixel data
+        ImageMagick.read(this.sourceBytes!, (image) => {
+          const width = image.width;
+          const height = image.height;
 
-            // Write to RGBA format for canvas and cache
-            image.write(MagickFormat.Rgba, (pixels) => {
-              // Cache the decoded pixels (Requirements: slider-performance 2.1)
-              this.cachedPixels = new Uint8Array(pixels);
-              this.cachedWidth = width;
-              this.cachedHeight = height;
-              
-              resolve({
-                pixels: new Uint8Array(pixels),
-                width,
-                height,
-                originalBytes: this.sourceBytes!,
-              });
+          // Write to RGBA format for canvas and cache
+          image.write(MagickFormat.Rgba, (pixels) => {
+            // Cache the decoded pixels (Requirements: slider-performance 2.1)
+            this.cachedPixels = new Uint8Array(pixels);
+            this.cachedWidth = width;
+            this.cachedHeight = height;
+            
+            // Release lock after callback completes
+            this.mutex.release();
+            
+            resolve({
+              pixels: new Uint8Array(pixels),
+              width,
+              height,
+              originalBytes: this.sourceBytes!,
             });
           });
-        } catch (error) {
-          // Clear state on error
-          this.sourceBytes = null;
-          this.cachedPixels = null;
-          this.cachedWidth = 0;
-          this.cachedHeight = 0;
-          console.error('ImageEngine.loadImage error:', error);
-          const errorMessage = error instanceof Error ? error.message : 'Failed to load image';
-          reject(new Error(`Failed to load image: ${errorMessage}`));
-        }
-      });
-    } finally {
-      // Always release lock
-      this.mutex.release();
-    }
+        });
+      } catch (error) {
+        // Clear state on error
+        this.sourceBytes = null;
+        this.cachedPixels = null;
+        this.cachedWidth = 0;
+        this.cachedHeight = 0;
+        
+        // Release lock on error
+        this.mutex.release();
+        
+        console.error('ImageEngine.loadImage error:', error);
+        const errorMessage = error instanceof Error ? error.message : 'Failed to load image';
+        reject(new Error(`Failed to load image: ${errorMessage}`));
+      }
+    });
   }
 
   /**
@@ -238,6 +241,7 @@ export class ImageEngine {
    * otherwise re-reads from bytes to apply effects (ImageMagick requires this).
    * 
    * Thread-safe: Acquires mutex before accessing shared state.
+   * Lock is released after ImageMagick.read callback completes.
    *
    * @param activeTools - Array of ActiveTool objects specifying effects to apply
    * @returns Promise<ImageData> with processed pixel data
@@ -252,71 +256,74 @@ export class ImageEngine {
     // Acquire lock before accessing shared state
     await this.mutex.acquire();
 
-    try {
-      if (!this.cachedPixels || !this.sourceBytes) {
-        throw new Error('No image loaded. Call loadImage first.');
-      }
+    if (!this.cachedPixels || !this.sourceBytes) {
+      this.mutex.release();
+      throw new Error('No image loaded. Call loadImage first.');
+    }
 
-      // Capture references to shared state while holding lock
-      const sourceBytes = this.sourceBytes;
-      const cachedPixels = this.cachedPixels;
-      const cachedWidth = this.cachedWidth;
-      const cachedHeight = this.cachedHeight;
+    // Capture references to shared state while holding lock
+    const sourceBytes = this.sourceBytes;
+    const cachedPixels = this.cachedPixels;
+    const cachedWidth = this.cachedWidth;
+    const cachedHeight = this.cachedHeight;
 
-      // If no tools, return cached pixels directly (fast path)
-      if (activeTools.length === 0) {
-        return {
-          pixels: new Uint8Array(cachedPixels),
-          width: cachedWidth,
-          height: cachedHeight,
-          originalBytes: sourceBytes,
-        };
-      }
+    // If no tools, return cached pixels directly (fast path)
+    if (activeTools.length === 0) {
+      this.mutex.release();
+      return {
+        pixels: new Uint8Array(cachedPixels),
+        width: cachedWidth,
+        height: cachedHeight,
+        originalBytes: sourceBytes,
+      };
+    }
 
-      // For effects, we need to use ImageMagick - read from bytes
-      // Note: ImageMagick WASM doesn't support reading from raw RGBA pixels,
-      // so we must read from the compressed bytes for effect application
-      return await new Promise<ImageData>((resolve, reject) => {
-        try {
-          ImageMagick.read(sourceBytes, (image) => {
-            // Sort tools by EFFECT_ORDER for consistent application
-            const sortedTools = [...activeTools].sort((a, b) => {
-              const aIndex = EFFECT_ORDER.indexOf(a.id);
-              const bIndex = EFFECT_ORDER.indexOf(b.id);
-              // Unknown tools go to the end
-              return (aIndex === -1 ? Infinity : aIndex) - (bIndex === -1 ? Infinity : bIndex);
-            });
+    // For effects, we need to use ImageMagick - read from bytes
+    // Note: ImageMagick WASM doesn't support reading from raw RGBA pixels,
+    // so we must read from the compressed bytes for effect application
+    return new Promise<ImageData>((resolve, reject) => {
+      try {
+        ImageMagick.read(sourceBytes, (image) => {
+          // Sort tools by EFFECT_ORDER for consistent application
+          const sortedTools = [...activeTools].sort((a, b) => {
+            const aIndex = EFFECT_ORDER.indexOf(a.id);
+            const bIndex = EFFECT_ORDER.indexOf(b.id);
+            // Unknown tools go to the end
+            return (aIndex === -1 ? Infinity : aIndex) - (bIndex === -1 ? Infinity : bIndex);
+          });
 
-            // Apply effects from registry
-            for (const tool of sortedTools) {
-              const toolDef = TOOL_REGISTRY[tool.id];
-              if (toolDef) {
-                toolDef.execute(image, tool.value);
-              } else {
-                console.warn(`Unknown tool "${tool.id}" skipped during processing`);
-              }
+          // Apply effects from registry
+          for (const tool of sortedTools) {
+            const toolDef = TOOL_REGISTRY[tool.id];
+            if (toolDef) {
+              toolDef.execute(image, tool.value);
+            } else {
+              console.warn(`Unknown tool "${tool.id}" skipped during processing`);
             }
+          }
 
-            // Write to RGBA for canvas rendering
-            image.write(MagickFormat.Rgba, (pixels) => {
-              resolve({
-                pixels: new Uint8Array(pixels),
-                width: image.width,
-                height: image.height,
-                originalBytes: sourceBytes,
-              });
+          // Write to RGBA for canvas rendering
+          image.write(MagickFormat.Rgba, (pixels) => {
+            // Release lock after callback completes
+            this.mutex.release();
+            
+            resolve({
+              pixels: new Uint8Array(pixels),
+              width: image.width,
+              height: image.height,
+              originalBytes: sourceBytes,
             });
           });
-        } catch (error) {
-          console.error('ImageEngine.process error:', error);
-          const errorMessage = error instanceof Error ? error.message : 'Failed to process image';
-          reject(new Error(`Failed to process image: ${errorMessage}`));
-        }
-      });
-    } finally {
-      // Always release lock
-      this.mutex.release();
-    }
+        });
+      } catch (error) {
+        // Release lock on error
+        this.mutex.release();
+        
+        console.error('ImageEngine.process error:', error);
+        const errorMessage = error instanceof Error ? error.message : 'Failed to process image';
+        reject(new Error(`Failed to process image: ${errorMessage}`));
+      }
+    });
   }
 
   /**

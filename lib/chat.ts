@@ -47,6 +47,7 @@ export function buildSystemMessage(imageContext: ImageState): string {
 
   // Generate tools list dynamically from registry
   const toolsPrompt = generateToolsPrompt();
+  const toolCount = Object.keys(TOOL_REGISTRY).length;
 
   return `You are an AI assistant for an image editing application called MagickFlow.
 
@@ -61,7 +62,7 @@ You have access to two functions:
 1. show_tools - Summons editing controls AND applies initial values
 2. remove_tools - Removes editing controls from the panel
 
-You have a full suite of 15 professional tools available:
+You have a full suite of ${toolCount} professional tools available:
 ${toolsPrompt}
 
 ADDING EFFECTS:
@@ -192,10 +193,25 @@ export function parseRequestBody(body: unknown): { messages: ChatMessage[]; imag
  * Returns CSS classes for message styling based on role.
  * User messages are styled with blue background and right-aligned.
  * Assistant messages are styled with zinc background and left-aligned.
+ * @deprecated Use getMessageBubbleClasses for the new glass panel design
  */
 export function getMessageClasses(role: 'user' | 'assistant' | 'system'): string {
   if (role === 'user') {
     return 'bg-blue-600 text-white ml-auto';
   }
-  return 'bg-zinc-200 dark:bg-zinc-700 text-zinc-900 dark:text-zinc-100 mr-auto';
+  return 'bg-zinc-700 text-zinc-100 mr-auto';
+}
+
+/**
+ * Returns CSS classes for message bubble styling in the glass panel design.
+ * User messages: white background with black text for high contrast
+ * Assistant messages: transparent background with light text
+ * 
+ * Requirements: 4.4, 4.5
+ */
+export function getMessageBubbleClasses(role: 'user' | 'assistant'): string {
+  if (role === 'user') {
+    return 'bg-white text-black rounded-2xl px-4 py-2 ml-auto';
+  }
+  return 'bg-transparent text-zinc-200 px-4 py-2 mr-auto';
 }

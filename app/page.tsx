@@ -4,38 +4,30 @@ import ImageProcessor from './components/ImageProcessor';
 import ChatInterface from './components/ChatInterface';
 
 /**
- * Main page component - minimal orchestration with Zustand store
- * State management moved to lib/store.ts
- * Requirements: 1.6, 1.7
+ * Main page component - Immersive full-screen layout with layered z-index
+ * Layer 1 (z-0): ImageProcessor canvas
+ * Layer 2 (z-10): Floating logo/header
+ * Layer 3 (z-20): ChatInterface floating panel
+ * Requirements: 2.1, 2.2, 2.3, 2.4, 2.5
  */
 export default function Home() {
   return (
-    <div className="min-h-screen bg-gradient-to-b from-zinc-50 to-zinc-100 dark:from-zinc-950 dark:to-zinc-900 py-12 px-4">
-      <header className="text-center mb-10">
-        <h1 className="text-4xl font-bold text-zinc-900 dark:text-zinc-100 mb-3">
-          Magick.WASM Image Processor
+    <div className="h-screen w-screen overflow-hidden relative bg-transparent">
+      {/* Layer 1: ImageProcessor as base layer */}
+      <div className="absolute inset-0 z-0">
+        <ImageProcessor />
+      </div>
+
+      {/* Layer 2: Floating logo/header */}
+      <div className="absolute top-4 left-4 md:top-6 md:left-6 z-10">
+        <h1 className="text-xl md:text-2xl font-semibold text-zinc-100 tracking-tight">
+          Conjure
         </h1>
-        <p className="text-zinc-600 dark:text-zinc-400 text-lg">
-          Client-side image processing powered by ImageMagick WebAssembly
-        </p>
-      </header>
-      
-      <div className="container mx-auto max-w-7xl">
-        <div className="flex flex-col lg:flex-row gap-6">
-          {/* Main Content - Image Processor */}
-          <main className="flex-1">
-            <ImageProcessor />
-          </main>
-          
-          {/* Chat Sidebar - responsive height with viewport-relative sizing */}
-          <aside className="lg:w-96 h-[50vh] min-h-[300px] max-h-[80vh] lg:h-[70vh] lg:min-h-[400px] lg:max-h-[800px] overflow-auto">
-            <ChatInterface />
-          </aside>
-        </div>
-        
-        <footer className="mt-12 text-center text-sm text-zinc-500 dark:text-zinc-500">
-          <p>All image processing happens locally in your browser</p>
-        </footer>
+      </div>
+
+      {/* Layer 3: ChatInterface as floating panel - responsive width */}
+      <div className="z-20">
+        <ChatInterface />
       </div>
     </div>
   );

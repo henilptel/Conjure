@@ -3,9 +3,11 @@
 import { useState, FormEvent, ChangeEvent, useEffect, useRef } from 'react';
 import { useChat } from '@ai-sdk/react';
 import { DefaultChatTransport, UIMessage, isToolUIPart, getToolName } from 'ai';
+import { motion, AnimatePresence } from 'framer-motion';
 import { ToolInput } from '@/lib/types';
 import { useAppStore } from '@/lib/store';
-import { getMessageClasses } from '@/lib/chat';
+import { getMessageBubbleClasses } from '@/lib/chat';
+import { cn } from '@/lib/utils';
 import LoadingIndicator from './LoadingIndicator';
 
 // Create transport once at module level - body will be passed per-request
@@ -169,11 +171,30 @@ export default function ChatInterface() {
     return '';
   };
 
+  // Message animation variants for AnimatePresence
+  const messageVariants = {
+    initial: { opacity: 0, y: 20 },
+    animate: { opacity: 1, y: 0 },
+    exit: { opacity: 0, y: -10 }
+  };
+
   return (
-    <div className="flex flex-col h-full bg-zinc-50 dark:bg-zinc-900 rounded-lg border border-zinc-200 dark:border-zinc-700">
+    <div className={cn(
+      // Glassmorphism styling - Requirements: 4.1, 4.6
+      "backdrop-blur-md bg-black/40",
+      "border border-white/10 rounded-2xl",
+      // Floating sidebar positioning - Requirements: 4.2
+      // Responsive: smaller on mobile, full width on very small screens
+      "absolute z-20",
+      "right-4 top-4 bottom-4 w-[calc(100%-2rem)]",
+      "sm:right-4 sm:top-4 sm:bottom-4 sm:w-[320px]",
+      "md:right-6 md:top-6 md:bottom-6 md:w-[400px]",
+      // Layout
+      "flex flex-col overflow-hidden"
+    )}>
       {/* Header */}
-      <div className="px-4 py-3 border-b border-zinc-200 dark:border-zinc-700">
-        <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
+      <div className="px-4 py-3 border-b border-white/10">
+        <h3 className="text-sm font-semibold text-zinc-100">
           AI Assistant
         </h3>
       </div>
@@ -181,21 +202,31 @@ export default function ChatInterface() {
       {/* Message List */}
       <div className="flex-1 overflow-y-auto p-4 space-y-3">
         {messages.length === 0 ? (
-          <div className="text-center text-zinc-500 dark:text-zinc-400 text-sm py-8">
+          <div className="text-center text-zinc-400 text-sm py-8">
             <p>Ask me about your image!</p>
             <p className="mt-1 text-xs">
               I can see the current blur level, dimensions, and more.
             </p>
           </div>
         ) : (
-          messages.map((message) => (
-            <div
-              key={message.id}
-              className={`max-w-[80%] px-3 py-2 rounded-lg text-sm ${getMessageClasses(message.role as 'user' | 'assistant')}`}
-            >
-              {getMessageContent(message)}
-            </div>
-          ))
+          <AnimatePresence mode="popLayout">
+            {messages.map((message) => (
+              <motion.div
+                key={message.id}
+                variants={messageVariants}
+                initial="initial"
+                animate="animate"
+                exit="exit"
+                transition={{ duration: 0.2 }}
+                className={cn(
+                  "max-w-[80%] text-sm",
+                  getMessageBubbleClasses(message.role as 'user' | 'assistant')
+                )}
+              >
+                {getMessageContent(message)}
+              </motion.div>
+            ))}
+          </AnimatePresence>
         )}
         {isLoading && (
           <div className="flex justify-start">
@@ -203,27 +234,27 @@ export default function ChatInterface() {
           </div>
         )}
         {error && (
-          <div className="text-red-500 text-sm px-3 py-2">
+          <div className="text-red-400 text-sm px-3 py-2">
             Sorry, I encountered an error. Please try again.
           </div>
         )}
       </div>
 
       {/* Input Form */}
-      <form onSubmit={handleSubmit} className="p-4 border-t border-zinc-200 dark:border-zinc-700">
+      <form onSubmit={handleSubmit} className="p-4 border-t border-white/10">
         <div className="flex gap-2">
           <input
             type="text"
             value={input}
             onChange={handleInputChange}
             placeholder="Ask about your image..."
-            className="flex-1 px-3 py-2 text-sm bg-white dark:bg-zinc-800 border border-zinc-300 dark:border-zinc-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400 text-zinc-900 dark:text-zinc-100 placeholder-zinc-500"
+            className="flex-1 px-3 py-2 text-sm bg-black/30 border border-white/10 rounded-lg focus:outline-none focus:ring-2 focus:ring-white/20 text-zinc-100 placeholder-zinc-500"
             disabled={isLoading}
           />
           <button
             type="submit"
             disabled={isLoading || !input.trim()}
-            className="px-4 py-2 text-sm font-medium bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-zinc-300 dark:disabled:bg-zinc-700 disabled:text-zinc-500 disabled:cursor-not-allowed transition-colors"
+            className="px-4 py-2 text-sm font-medium bg-white text-black rounded-lg hover:bg-zinc-200 disabled:bg-zinc-700 disabled:text-zinc-500 disabled:cursor-not-allowed transition-colors"
           >
             Send
           </button>

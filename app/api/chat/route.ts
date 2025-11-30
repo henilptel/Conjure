@@ -128,6 +128,9 @@ function createShowToolsSchema() {
  */
 function createRemoveToolsSchema() {
   const toolIds = getAllToolIds();
+  if (toolIds.length === 0) {
+    throw new Error('TOOL_REGISTRY must contain at least one tool');
+  }
   const toolNameEnum = z.enum(toolIds as [string, ...string[]]);
   
   return z.object({

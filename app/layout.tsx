@@ -13,7 +13,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Magick.WASM Image Processor",
+  title: "Conjure",
   description: "Client-side image processing using ImageMagick WebAssembly",
 };
 

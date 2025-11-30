@@ -148,45 +148,50 @@ export function addTools(currentTools: ActiveTool[], newToolNames: string[]): Ac
  * Adds new tools with initial values to the active tools array.
  * Filters out duplicates and invalid tool names.
  * If a tool already exists, updates its value to the new initial value.
+ * Preserves the original order of existing tools, appending new tools at the end.
  * 
  * @param currentTools - The current array of active tools
  * @param toolInputs - Array of tool inputs with names and optional initial values
- * @returns New array with tools added/updated
+ * @returns New array with tools added/updated, preserving original order
  * 
  * Requirements: 1.1, 1.3
  */
 export function addToolsWithValues(currentTools: ActiveTool[], toolInputs: ToolInput[]): ActiveTool[] {
-  const existingToolsMap = new Map(currentTools.map(t => [t.id, t]));
-  const processedIds = new Set<string>();
-  const result: ActiveTool[] = [];
-  
-  // Process new tool inputs
+  // Build a map of toolInputs by name (first occurrence wins for duplicates)
+  const inputsMap = new Map<string, ToolInput>();
   for (const input of toolInputs) {
-    if (processedIds.has(input.name)) continue;
-    processedIds.add(input.name);
-    
-    const existingTool = existingToolsMap.get(input.name);
-    if (existingTool) {
-      // Update existing tool with new value if provided
-      if (input.initial_value !== undefined && !isNaN(input.initial_value)) {
-        const clampedValue = Math.max(existingTool.min, Math.min(existingTool.max, input.initial_value));
-        result.push({ ...existingTool, value: clampedValue });
-      } else {
-        result.push(existingTool);
-      }
-      existingToolsMap.delete(input.name);
-    } else {
-      // Create new tool
-      const newTool = createToolConfig(input.name, input.initial_value);
-      if (newTool) {
-        result.push(newTool);
-      }
+    if (!inputsMap.has(input.name)) {
+      inputsMap.set(input.name, input);
     }
   }
   
-  // Add remaining existing tools that weren't in the input
-  for (const tool of existingToolsMap.values()) {
-    result.push(tool);
+  const result: ActiveTool[] = [];
+  
+  // Iterate currentTools in original order, updating if input exists
+  for (const tool of currentTools) {
+    const input = inputsMap.get(tool.id);
+    if (input) {
+      // Update existing tool with new value if provided
+      if (input.initial_value !== undefined && !isNaN(input.initial_value)) {
+        const clampedValue = Math.max(tool.min, Math.min(tool.max, input.initial_value));
+        result.push({ ...tool, value: clampedValue });
+      } else {
+        result.push(tool);
+      }
+      // Remove matched input from map
+      inputsMap.delete(tool.id);
+    } else {
+      // Keep original tool unchanged
+      result.push(tool);
+    }
+  }
+  
+  // Append any remaining new tools from the map
+  for (const input of inputsMap.values()) {
+    const newTool = createToolConfig(input.name, input.initial_value);
+    if (newTool) {
+      result.push(newTool);
+    }
   }
   
   return result;

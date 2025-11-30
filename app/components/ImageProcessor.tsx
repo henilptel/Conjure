@@ -2,10 +2,13 @@
 
 import { useState, useRef, ChangeEvent, useLayoutEffect, useEffect, useCallback } from 'react';
 import { useShallow } from 'zustand/react/shallow';
+import { motion, AnimatePresence } from 'framer-motion';
+import { Upload } from 'lucide-react';
 import { validateImageFile, FileValidationResult } from '@/lib/validation';
 import { initializeMagick, ImageEngine, ImageData } from '@/lib/magick';
 import { renderImageToCanvas } from '@/lib/canvas';
 import { useAppStore } from '@/lib/store';
+import { cn } from '@/lib/utils';
 import LoadingIndicator from './LoadingIndicator';
 import Slider from './ui/Slider';
 import ToolPanel from './overlay/ToolPanel';
@@ -17,6 +20,16 @@ interface ImageProcessorState {
   error: string | null;
   hasImage: boolean;
 }
+
+// Drop Zone animation variants (Framer Motion) - Requirements: 3.1, 3.2
+const dropZoneVariants = {
+  initial: { scale: 1, opacity: 0.6 },
+  animate: { 
+    scale: [1, 1.02, 1],
+    opacity: [0.6, 0.8, 0.6],
+    transition: { duration: 2, repeat: Infinity, ease: 'easeInOut' as const }
+  }
+};
 
 /**
  * ImageProcessor component - uses Zustand store for state management
@@ -121,7 +134,8 @@ export default function ImageProcessor() {
     // No activeTools - use local blur slider if needed
     if (blur === 0) {
       // No effects to apply, show original
-      const processOriginal = async () => {
+      // Schedule via setTimeout so cleanup can cancel it
+      const timeoutId = setTimeout(async () => {
         if (pipelineOperationRef.current !== operationId) return;
         if (!engineRef.current?.hasImage()) return;
         
@@ -135,9 +149,9 @@ export default function ImageProcessor() {
         } catch {
           // Ignore errors for original display
         }
-      };
-      processOriginal();
-      return;
+      }, 0);
+      
+      return () => clearTimeout(timeoutId);
     }
 
     // Apply local blur when no activeTools
@@ -320,42 +334,63 @@ export default function ImageProcessor() {
 
 
   return (
-    <div className="flex flex-col items-center gap-6 w-full max-w-2xl mx-auto p-6">
-      <h2 className="text-2xl font-semibold text-zinc-900 dark:text-zinc-100">
-        Image Processor
-      </h2>
-      
-      {/* File Upload Input */}
-      <div className="w-full">
-        <label
+    <div className="absolute inset-0 z-0 flex items-center justify-center">
+      {/* Error Display - positioned at top center */}
+      <AnimatePresence>
+        {state.error && (
+          <motion.div 
+            initial={{ opacity: 0, y: -20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -20 }}
+            className="absolute top-6 left-1/2 -translate-x-1/2 z-10 p-4 bg-red-900/40 backdrop-blur-md border border-red-500/30 rounded-xl"
+          >
+            <p className="text-sm text-red-400">{state.error}</p>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Loading Indicator - centered overlay */}
+      <AnimatePresence>
+        {isProcessing && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="absolute inset-0 z-20 flex items-center justify-center bg-black/20 backdrop-blur-sm"
+          >
+            <LoadingIndicator 
+              message={state.status === 'initializing' ? 'Initializing image processor...' : 'Processing image...'}
+              size="md"
+            />
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Animated Drop Zone - shown when no image (Requirements: 3.1, 3.2) */}
+      {!state.hasImage && (
+        <motion.label
           htmlFor="image-upload"
-          className={`flex flex-col items-center justify-center w-full h-32 border-2 border-dashed rounded-lg transition-colors ${
-            isProcessing
-              ? 'border-zinc-200 dark:border-zinc-800 bg-zinc-100 dark:bg-zinc-900 cursor-not-allowed'
-              : 'border-zinc-300 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-900 hover:bg-zinc-100 dark:hover:bg-zinc-800 cursor-pointer'
-          }`}
+          variants={dropZoneVariants}
+          initial="initial"
+          animate="animate"
+          className={cn(
+            "flex flex-col items-center justify-center",
+            "w-[90vw] h-[60vw] max-w-[400px] max-h-[300px]",
+            "border-2 border-dashed border-white/20 rounded-2xl",
+            "bg-white/5 backdrop-blur-sm",
+            "cursor-pointer transition-colors",
+            "hover:border-white/40 hover:bg-white/10",
+            isProcessing && "cursor-not-allowed opacity-50"
+          )}
+          data-testid="drop-zone"
         >
-          <div className="flex flex-col items-center justify-center pt-5 pb-6">
-            <svg
-              className="w-8 h-8 mb-3 text-zinc-500 dark:text-zinc-400"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"
-              />
-            </svg>
-            <p className="mb-2 text-sm text-zinc-500 dark:text-zinc-400">
-              <span className="font-semibold">Click to upload</span> or drag and drop
-            </p>
-            <p className="text-xs text-zinc-500 dark:text-zinc-400">
-              PNG, JPEG, GIF, or WebP
-            </p>
-          </div>
+          <Upload className="w-10 h-10 md:w-12 md:h-12 mb-3 md:mb-4 text-zinc-400" />
+          <p className="mb-2 text-base md:text-lg text-zinc-300 text-center px-4">
+            <span className="font-semibold">Click to upload</span> or drag and drop
+          </p>
+          <p className="text-xs md:text-sm text-zinc-500">
+            PNG, JPEG, GIF, or WebP
+          </p>
           <input
             ref={fileInputRef}
             id="image-upload"
@@ -365,53 +400,45 @@ export default function ImageProcessor() {
             onChange={handleFileSelect}
             disabled={isProcessing}
           />
-        </label>
-      </div>
+        </motion.label>
+      )}
 
-      {/* Error Display */}
-      {state.error && (
-        <div className="w-full p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg">
-          <p className="text-sm text-red-600 dark:text-red-400">{state.error}</p>
+      {/* Canvas for Image Display - centered, floating appearance (Requirements: 3.3, 3.4) */}
+      {state.hasImage && (
+        <div className="flex items-center justify-center h-full w-full p-8">
+          <canvas
+            ref={canvasRef}
+            className="max-w-full max-h-full"
+            data-testid="image-canvas"
+          />
         </div>
       )}
 
-      {/* Loading Indicator */}
-      {isProcessing && (
-        <LoadingIndicator 
-          message={state.status === 'initializing' ? 'Initializing image processor...' : 'Processing image...'}
-          size="md"
-        />
+      {/* ToolPanel - positioned absolute bottom-center (Requirements: 3.5) */}
+      {state.hasImage && (
+        <ToolPanel disabled={isProcessing} />
       )}
 
-      {/* Canvas for Image Display */}
+      {/* Grayscale Button - positioned at bottom left, responsive */}
       {state.hasImage && (
-        <div className="w-full flex flex-col items-center gap-4">
-          {/* Relative container for canvas and ToolPanel overlay */}
-          <div className="relative">
-            <canvas
-              ref={canvasRef}
-              className="max-w-full border border-zinc-200 dark:border-zinc-700 rounded-lg shadow-sm"
-            />
-            {/* ToolPanel overlay - positioned at bottom-center of canvas */}
-            <ToolPanel disabled={isProcessing} />
-          </div>
-          
-          {/* Grayscale Button */}
+        <div className="absolute bottom-4 left-4 md:bottom-6 md:left-6 flex flex-col gap-3">
           <button
             onClick={handleGrayscale}
             disabled={isProcessing}
-            className={`px-6 py-2 rounded-lg font-medium transition-colors ${
+            className={cn(
+              "px-3 py-1.5 md:px-4 md:py-2 rounded-xl font-medium transition-colors text-sm md:text-base",
+              "backdrop-blur-md border border-white/10",
               isProcessing
-                ? 'bg-zinc-300 dark:bg-zinc-700 text-zinc-500 dark:text-zinc-400 cursor-not-allowed'
-                : 'bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 hover:bg-zinc-700 dark:hover:bg-zinc-300'
-            }`}
+                ? "bg-black/20 text-zinc-500 cursor-not-allowed"
+                : "bg-black/40 text-zinc-200 hover:bg-black/60"
+            )}
           >
             Make Grayscale
           </button>
           
           {/* Blur Slider - hidden when activeTools contains blur (HUD panel takes precedence) */}
           {!activeTools.some(t => t.id === 'blur') && (
-            <div className="w-full max-w-xs">
+            <div className="w-40 md:w-48 p-2 md:p-3 backdrop-blur-md bg-black/40 border border-white/10 rounded-xl">
               <Slider
                 value={blur}
                 min={0}

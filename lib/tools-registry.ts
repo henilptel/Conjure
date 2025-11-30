@@ -63,7 +63,7 @@ export const EFFECT_ORDER: readonly string[] = [
   'contrast',
   'solarize',
   'vignette',
-  'implode',
+  'wave',
 ];
 
 /**
@@ -261,16 +261,15 @@ export const TOOL_REGISTRY: Record<string, ToolDefinition> = {
     },
   },
 
-  implode: {
-    id: 'implode',
-    label: 'Implode',
+  wave: {
+    id: 'wave',
+    label: 'Wave',
     min: 0,
     max: 100,
     defaultValue: 0,
     execute: (image: IMagickImage, value: number): void => {
       // Only apply when value > 0
       if (value > 0) {
-        // Use wave effect as implode is not available in magick-wasm
         // wave(interpolate, amplitude, length) creates a wave distortion
         // Scale value 0-100 to amplitude 0-25 for visible but not extreme effect
         const amplitude = (value / 100) * 25;

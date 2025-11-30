@@ -4,20 +4,30 @@
 import { useRef, useCallback, useEffect } from 'react';
 
 /**
+ * Return type for useDebouncedCallback hook
+ */
+export interface DebouncedCallback<T extends (...args: any[]) => void> {
+  /** The debounced function to call */
+  call: (...args: Parameters<T>) => void;
+  /** Cancel any pending debounced invocation */
+  cancel: () => void;
+}
+
+/**
  * Creates a debounced version of a callback function.
  * The callback will only be invoked after the specified delay has passed
  * since the last invocation.
  * 
  * @param callback - The function to debounce
  * @param delay - Delay in milliseconds (default: 50ms)
- * @returns Debounced version of the callback
+ * @returns Object with debounced callback and cancel method
  * 
  * Requirements: 1.1, 1.2
  */
 export function useDebouncedCallback<T extends (...args: any[]) => void>(
   callback: T,
   delay: number = 50
-): (...args: Parameters<T>) => void {
+): DebouncedCallback<T> {
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const callbackRef = useRef(callback);
 
@@ -35,7 +45,14 @@ export function useDebouncedCallback<T extends (...args: any[]) => void>(
     };
   }, []);
 
-  const debouncedCallback = useCallback(
+  const cancel = useCallback(() => {
+    if (timeoutRef.current) {
+      clearTimeout(timeoutRef.current);
+      timeoutRef.current = null;
+    }
+  }, []);
+
+  const call = useCallback(
     (...args: Parameters<T>) => {
       // Clear any existing timeout
       if (timeoutRef.current) {
@@ -53,5 +70,5 @@ export function useDebouncedCallback<T extends (...args: any[]) => void>(
     [delay]
   );
 
-  return debouncedCallback;
+  return { call, cancel };
 }
