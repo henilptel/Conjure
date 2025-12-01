@@ -8,8 +8,6 @@ import {
   ToastMessage,
   addToast,
   removeToast,
-  shouldAutoDismiss,
-  getExpiredToasts,
   DEFAULT_AUTO_DISMISS_MS,
 } from '@/app/components/dock/GhostToast';
 import {
@@ -71,72 +69,11 @@ const nonEmptyToastQueueArb = fc.array(toastMessageArb, { minLength: 1, maxLengt
  * 
  * For any displayed toast, after 5 seconds (or click), the toast SHALL be 
  * removed from the queue.
+ * 
+ * Note: Auto-dismiss is now handled via setTimeout in each ToastItem component,
+ * so these tests verify the constants and helper functions only.
  */
 describe('Property 7: Toast Auto-Dismiss', () => {
-  it('shouldAutoDismiss returns true when elapsed time >= autoDismissMs', () => {
-    fc.assert(
-      fc.property(
-        toastMessageArb,
-        fc.integer({ min: 0, max: 100000 }), // autoDismissMs
-        fc.integer({ min: 0, max: 100000 }), // additional elapsed time
-        (toast, autoDismissMs, additionalTime) => {
-          // Current time is at least autoDismissMs after toast timestamp
-          const currentTime = toast.timestamp + autoDismissMs + additionalTime;
-          
-          expect(shouldAutoDismiss(toast, currentTime, autoDismissMs)).toBe(true);
-        }
-      ),
-      { numRuns: 100 }
-    );
-  });
-
-  it('shouldAutoDismiss returns false when elapsed time < autoDismissMs', () => {
-    fc.assert(
-      fc.property(
-        toastMessageArb,
-        fc.integer({ min: 1, max: 100000 }), // autoDismissMs (at least 1ms)
-        fc.double({ min: 0, max: 0.99 }), // elapsed fraction
-        (toast, autoDismissMs, elapsedFraction) => {
-          // Current time is less than autoDismissMs after toast timestamp
-          const currentTime = toast.timestamp + Math.floor(autoDismissMs * elapsedFraction);
-          
-          expect(shouldAutoDismiss(toast, currentTime, autoDismissMs)).toBe(false);
-        }
-      ),
-      { numRuns: 100 }
-    );
-  });
-
-  it('getExpiredToasts returns only toasts that have exceeded autoDismissMs', () => {
-    fc.assert(
-      fc.property(
-        nonEmptyToastQueueArb,
-        fc.integer({ min: 1000, max: 10000 }), // autoDismissMs
-        (queue, autoDismissMs) => {
-          // Set current time to be after some toasts but not all
-          const sortedByTimestamp = [...queue].sort((a, b) => a.timestamp - b.timestamp);
-          const midIndex = Math.floor(sortedByTimestamp.length / 2);
-          const midTimestamp = sortedByTimestamp[midIndex].timestamp;
-          const currentTime = midTimestamp + autoDismissMs;
-          
-          const expired = getExpiredToasts(queue, currentTime, autoDismissMs);
-          
-          // All expired toasts should have timestamp <= currentTime - autoDismissMs
-          for (const toast of expired) {
-            expect(currentTime - toast.timestamp).toBeGreaterThanOrEqual(autoDismissMs);
-          }
-          
-          // All non-expired toasts should have timestamp > currentTime - autoDismissMs
-          const expiredIds = new Set(expired.map(t => t.id));
-          const nonExpired = queue.filter(t => !expiredIds.has(t.id));
-          for (const toast of nonExpired) {
-            expect(currentTime - toast.timestamp).toBeLessThan(autoDismissMs);
-          }
-        }
-      ),
-      { numRuns: 100 }
-    );
-  });
 
   it('removeToast removes the specified toast from queue', () => {
     fc.assert(
