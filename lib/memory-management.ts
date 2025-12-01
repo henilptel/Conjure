@@ -39,6 +39,16 @@ export const IDLE_CLEANUP_TIMEOUT_MS = 30_000;
 export const MIN_IDLE_CLEANUP_TIMEOUT_MS = 5_000;
 
 /**
+ * Standardized names for memory buffers to ensure consistency
+ */
+export const MEMORY_BUFFER_NAMES = {
+  SOURCE_BYTES: 'sourceBytes',
+  CACHED_PIXELS: 'cachedPixels',
+  PROCESSED_RESULT: 'processedResult',
+  CANVAS_RENDER_CACHE: 'canvasRenderCache',
+} as const;
+
+/**
  * Structure tracking current memory usage
  */
 export interface MemoryUsageInfo {
@@ -150,8 +160,28 @@ export function analyzeMemoryRequirements(
       return { type: 'proceed' };
     }
     // Image is within dimension limits but exceeds memory budget
-    // Try downscaling anyway
-    const forcedScale = 0.75; // 75% of current size
+    // Calculate scale factor based on available budget
+    const availableBudget = MAX_MEMORY_BUDGET_BYTES - currentUsage;
+    
+    if (availableBudget <= 0) {
+      return {
+        type: 'reject',
+        reason: 'System is already out of memory budget.',
+      };
+    }
+
+    // Calculate scale needed to fit within budget: scale = sqrt(available / estimated)
+    // We use a slight safety margin (0.95) to account for rounding and overhead
+    const targetScale = Math.sqrt(availableBudget / estimatedUsage) * 0.95;
+    
+    if (targetScale < 0.1) {
+      return {
+        type: 'reject',
+        reason: 'Available memory budget is too low to process this image.',
+      };
+    }
+
+    const forcedScale = targetScale;
     const forcedWidth = Math.round(width * forcedScale);
     const forcedHeight = Math.round(height * forcedScale);
     const forcedUsage = estimateImageMemoryUsage(forcedWidth, forcedHeight, compressedSize);
@@ -298,10 +328,10 @@ export class MemoryTracker {
    * Gets detailed memory usage info
    */
   getUsageInfo(): MemoryUsageInfo {
-    const sourceBytesSize = this.usage.get('sourceBytes') ?? 0;
-    const cachedPixelsSize = this.usage.get('cachedPixels') ?? 0;
-    const processedResultSize = this.usage.get('processedResult') ?? 0;
-    const canvasRenderCacheSize = this.usage.get('canvasRenderCache') ?? 0;
+    const sourceBytesSize = this.usage.get(MEMORY_BUFFER_NAMES.SOURCE_BYTES) ?? 0;
+    const cachedPixelsSize = this.usage.get(MEMORY_BUFFER_NAMES.CACHED_PIXELS) ?? 0;
+    const processedResultSize = this.usage.get(MEMORY_BUFFER_NAMES.PROCESSED_RESULT) ?? 0;
+    const canvasRenderCacheSize = this.usage.get(MEMORY_BUFFER_NAMES.CANVAS_RENDER_CACHE) ?? 0;
     const totalSize = this.getTotalUsage();
     
     return {

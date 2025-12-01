@@ -145,10 +145,11 @@ describe('Property 9: Toast Queue Order', () => {
         fc.array(fc.string({ minLength: 1, maxLength: 50 }), { minLength: 1, maxLength: 5 }),
         (texts) => {
           let queue: ToastMessage[] = [];
+          const maxQueueSize = 5; // Explicit limit
           
           // Add toasts sequentially
           for (const text of texts) {
-            queue = addToast(queue, text);
+            queue = addToast(queue, text, maxQueueSize);
           }
           
           // Toasts should be in the order they were added

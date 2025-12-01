@@ -21,6 +21,7 @@ import {
   calculateDownscaledDimensions,
   IDLE_CLEANUP_TIMEOUT_MS,
   MemoryUsageInfo,
+  MEMORY_BUFFER_NAMES,
 } from "./memory-management";
 
 let isInitialized = false;
@@ -202,6 +203,10 @@ class WorkerManager {
     }
     this.isInitialized = false;
     this.initPromise = null;
+    // Reject all pending requests before clearing
+    for (const [, { reject }] of this.pendingRequests) {
+      reject(new Error('Worker disposed'));
+    }
     this.pendingRequests.clear();
   }
 
@@ -463,21 +468,21 @@ export class ImageEngine {
    */
   private updateMemoryTracking(): void {
     if (this.sourceBytes) {
-      this.memoryTracker.record('sourceBytes', this.sourceBytes.byteLength);
+      this.memoryTracker.record(MEMORY_BUFFER_NAMES.SOURCE_BYTES, this.sourceBytes.byteLength);
     } else {
-      this.memoryTracker.clear('sourceBytes');
+      this.memoryTracker.clear(MEMORY_BUFFER_NAMES.SOURCE_BYTES);
     }
     
     if (this.cachedPixels) {
-      this.memoryTracker.record('cachedPixels', this.cachedPixels.byteLength);
+      this.memoryTracker.record(MEMORY_BUFFER_NAMES.CACHED_PIXELS, this.cachedPixels.byteLength);
     } else {
-      this.memoryTracker.clear('cachedPixels');
+      this.memoryTracker.clear(MEMORY_BUFFER_NAMES.CACHED_PIXELS);
     }
     
     if (this.lastProcessedResult) {
-      this.memoryTracker.record('processedResult', this.lastProcessedResult.pixels.byteLength);
+      this.memoryTracker.record(MEMORY_BUFFER_NAMES.PROCESSED_RESULT, this.lastProcessedResult.pixels.byteLength);
     } else {
-      this.memoryTracker.clear('processedResult');
+      this.memoryTracker.clear(MEMORY_BUFFER_NAMES.PROCESSED_RESULT);
     }
   }
   
@@ -488,7 +493,7 @@ export class ImageEngine {
   clearMemoizationCache(): void {
     this.lastToolsSignature = '';
     this.lastProcessedResult = null;
-    this.memoryTracker.clear('processedResult');
+    this.memoryTracker.clear(MEMORY_BUFFER_NAMES.PROCESSED_RESULT);
   }
   
   /**
@@ -498,9 +503,9 @@ export class ImageEngine {
    */
   setCanvasRenderCacheSize(sizeBytes: number): void {
     if (sizeBytes > 0) {
-      this.memoryTracker.record('canvasRenderCache', sizeBytes);
+      this.memoryTracker.record(MEMORY_BUFFER_NAMES.CANVAS_RENDER_CACHE, sizeBytes);
     } else {
-      this.memoryTracker.clear('canvasRenderCache');
+      this.memoryTracker.clear(MEMORY_BUFFER_NAMES.CANVAS_RENDER_CACHE);
     }
   }
   
@@ -643,7 +648,7 @@ export class ImageEngine {
 
     // Store the original bytes
     this.sourceBytes = new Uint8Array(bytes);
-    this.memoryTracker.record('sourceBytes', this.sourceBytes.byteLength);
+    this.memoryTracker.record(MEMORY_BUFFER_NAMES.SOURCE_BYTES, this.sourceBytes.byteLength);
 
     return new Promise<ImageData>((resolve, reject) => {
       let released = false;
@@ -709,7 +714,7 @@ export class ImageEngine {
                 this.cachedHeight = targetHeight;
                 
                 // Update memory tracking
-                this.memoryTracker.record('cachedPixels', this.cachedPixels.byteLength);
+                this.memoryTracker.record(MEMORY_BUFFER_NAMES.CACHED_PIXELS, this.cachedPixels.byteLength);
                 
                 // Start idle cleanup timer
                 this.idleCleanupManager.resetTimer();
@@ -782,7 +787,7 @@ export class ImageEngine {
       // Clear memoization cache for empty tools case
       this.lastToolsSignature = '';
       this.lastProcessedResult = null;
-      this.memoryTracker.clear('processedResult');
+      this.memoryTracker.clear(MEMORY_BUFFER_NAMES.PROCESSED_RESULT);
       
       this.mutex.release();
       return {

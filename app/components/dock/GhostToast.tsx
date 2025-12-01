@@ -125,9 +125,15 @@ export function addToast(
   text: string,
   maxQueueSize = 5
 ): ToastMessage[] {
+  // Trim the incoming text and return original queue if empty
+  const trimmedText = text.trim();
+  if (trimmedText === '') {
+    return queue;
+  }
+  
   const newToast: ToastMessage = {
     id: `toast-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`,
-    text,
+    text: trimmedText,
     timestamp: Date.now(),
   };
   

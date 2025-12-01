@@ -244,6 +244,15 @@ interface ToolItemProps {
   onSliderChange: (value: number) => void;
 }
 
+const formatValue = (value: number, toolId: string): string => {
+  if (toolId === 'rotate') return `${value}°`;
+  if (toolId === 'invert') return value > 0 ? 'On' : 'Off';
+  if (['brightness', 'saturation', 'hue'].includes(toolId)) {
+    return `${value}%`;
+  }
+  return String(value);
+};
+
 const ToolItem = memo(function ToolItem({
   tool,
   icon: Icon,
@@ -255,17 +264,6 @@ const ToolItem = memo(function ToolItem({
 }: ToolItemProps) {
   const toolConfig = getToolConfig(tool.id);
   const isAtDefault = toolConfig && tool.value === toolConfig.defaultValue;
-  
-  // Format value for display
-  const formatValue = (value: number, toolId: string): string => {
-    // Special formatting for certain tools
-    if (toolId === 'rotate') return `${value}°`;
-    if (toolId === 'invert') return value > 0 ? 'On' : 'Off';
-    if (['brightness', 'saturation', 'hue'].includes(toolId)) {
-      return `${value}%`;
-    }
-    return String(value);
-  };
 
   return (
     <div className="rounded-lg overflow-hidden">
