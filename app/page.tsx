@@ -31,10 +31,13 @@ export default function Home() {
       </div>
 
       {/* Layer 2: Floating logo/header */}
-      <div className="absolute top-4 left-4 md:top-6 md:left-6 z-10">
-        <h1 className="text-xl md:text-2xl font-semibold text-zinc-100 tracking-tight">
+      <div className="absolute top-6 left-6 md:top-8 md:left-8 z-10 select-none mix-blend-difference flex items-center gap-3">
+        <h1 className="text-2xl md:text-3xl font-[family-name:var(--font-syne)] font-bold text-white/90">
           Conjure
         </h1>
+        <span className="px-2.5 py-0.5 rounded-full border border-white/20 bg-white/5 text-[10px] md:text-xs font-medium tracking-wider text-white/70 uppercase font-sans backdrop-blur-sm mt-1">
+          Preview
+        </span>
       </div>
 
       {/* Layer 3: ActiveToolsPanel - shows active effects on left side */}
