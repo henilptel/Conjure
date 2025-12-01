@@ -28,6 +28,12 @@ function createOperationManager() {
      * Starts a new operation, cancelling any pending ones
      */
     startOperation(value: number, delay: number, onComplete: (result: OperationResult) => void): number {
+      // Clear all pending timeouts since they're now superseded
+      for (const timeoutId of pendingOperations.values()) {
+        clearTimeout(timeoutId);
+      }
+      pendingOperations.clear();
+
       // Increment operation counter (cancels previous operations)
       const operationId = ++currentOperationId;
 

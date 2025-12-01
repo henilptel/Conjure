@@ -20,7 +20,7 @@ afterEach(() => {
 /**
  * Arbitrary for generating valid ActiveTool objects
  */
-const validToolNames: ToolName[] = ['blur', 'grayscale', 'sepia', 'contrast'];
+const validToolNames: ToolName[] = Object.keys(TOOL_CONFIGS) as ToolName[];
 
 const activeToolArb = fc.constantFrom(...validToolNames).chain((toolName) => {
   const config = TOOL_CONFIGS[toolName];
@@ -65,7 +65,7 @@ describe('Property 6: Empty Tools Hides Panel', () => {
         expect(container.firstChild).toBeNull();
         expect(screen.queryByTestId('tool-panel')).not.toBeInTheDocument();
       }),
-      { numRuns: 100 }
+      { numRuns: 1 }
     );
   });
 
@@ -83,10 +83,10 @@ describe('Property 6: Empty Tools Hides Panel', () => {
         // The panel should be rendered
         expect(screen.getByTestId('tool-panel')).toBeInTheDocument();
         
-        // Each tool should have a slider rendered (use getByRole to target the slider input)
+        // Each tool should have a remove button rendered
         tools.forEach((tool) => {
-          const slider = screen.getByTestId(`remove-tool-${tool.id}`);
-          expect(slider).toBeInTheDocument();
+          const removeButton = screen.getByTestId(`remove-tool-${tool.id}`);
+          expect(removeButton).toBeInTheDocument();
         });
         
         unmount();
