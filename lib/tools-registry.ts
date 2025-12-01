@@ -40,7 +40,7 @@ export interface ToolDefinition {
  * Effects are applied in this order: geometry → color adjustments → detail filters → artistic effects
  * 
  * Order: rotate → brightness → saturation → hue → invert → blur → sharpen → charcoal → 
- *        edge_detect → grayscale → sepia → contrast → solarize → vignette → implode
+ *        edge_detect → grayscale → sepia → contrast → solarize → vignette → wave
  * 
  * Requirements: 5.1, 5.2
  */

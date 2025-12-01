@@ -26,6 +26,18 @@ export interface ImageStateData {
 export type ProcessingStatus = 'idle' | 'initializing' | 'processing' | 'complete' | 'error';
 
 /**
+ * Preview mode for CSS filter-based instant feedback during slider drag
+ */
+export interface PreviewState {
+  /** Whether user is actively dragging a slider */
+  isDragging: boolean;
+  /** Tool ID currently being dragged (for targeted CSS preview) */
+  draggingToolId: string | null;
+  /** Preview tool values (may differ from committed activeTools during drag) */
+  previewTools: ActiveTool[];
+}
+
+/**
  * Application state interface
  */
 export interface AppState {
@@ -35,6 +47,9 @@ export interface AppState {
   processingStatus: ProcessingStatus;
   isCompareMode: boolean;
   
+  // Preview state for CSS filter optimization
+  previewState: PreviewState;
+  
   // Actions
   addTool: (toolInputs: ToolInput[]) => void;
   removeTool: (toolId: string) => void;
@@ -43,6 +58,12 @@ export interface AppState {
   setProcessingStatus: (status: ProcessingStatus) => void;
   setCompareMode: (enabled: boolean) => void;
   resetTools: () => void;
+  
+  // Preview actions for CSS filter optimization
+  startPreview: (toolId: string) => void;
+  updatePreviewValue: (toolId: string, value: number) => void;
+  commitPreview: () => void;
+  cancelPreview: () => void;
 }
 
 /**
@@ -55,15 +76,25 @@ const defaultImageState: ImageStateData = {
 };
 
 /**
+ * Default preview state
+ */
+const defaultPreviewState: PreviewState = {
+  isDragging: false,
+  draggingToolId: null,
+  previewTools: [],
+};
+
+/**
  * Zustand store for application state
  * Provides centralized state management for activeTools, imageState, and processingStatus
  */
-export const useAppStore = create<AppState>((set) => ({
+export const useAppStore = create<AppState>((set, get) => ({
   // Initial state
   activeTools: [],
   imageState: defaultImageState,
   processingStatus: 'idle',
   isCompareMode: false,
+  previewState: defaultPreviewState,
   
   // Actions
   
@@ -131,6 +162,60 @@ export const useAppStore = create<AppState>((set) => ({
    * Reset tools to empty array
    */
   resetTools: () => {
-    set({ activeTools: [] });
+    set({ activeTools: [], previewState: defaultPreviewState });
+  },
+  
+  // Preview actions for CSS filter optimization
+  
+  /**
+   * Start preview mode when user begins dragging a slider.
+   * Copies current activeTools to previewTools for CSS-based preview.
+   */
+  startPreview: (toolId: string) => {
+    const { activeTools } = get();
+    set({
+      previewState: {
+        isDragging: true,
+        draggingToolId: toolId,
+        previewTools: [...activeTools],
+      },
+    });
+  },
+  
+  /**
+   * Update preview value during drag without triggering WASM processing.
+   * Only updates previewTools, not activeTools.
+   */
+  updatePreviewValue: (toolId: string, value: number) => {
+    set((state) => ({
+      previewState: {
+        ...state.previewState,
+        previewTools: updateToolValueInArray(state.previewState.previewTools, toolId, value),
+      },
+    }));
+  },
+  
+  /**
+   * Commit preview values to activeTools when user releases slider.
+   * This triggers the final WASM processing via the activeTools effect.
+   */
+  commitPreview: () => {
+    const { previewState } = get();
+    if (!previewState.isDragging) return;
+    
+    set({
+      activeTools: [...previewState.previewTools],
+      previewState: defaultPreviewState,
+    });
+  },
+  
+  /**
+   * Cancel preview and revert to original activeTools.
+   * Used when user cancels interaction (e.g., Escape key).
+   */
+  cancelPreview: () => {
+    set({
+      previewState: defaultPreviewState,
+    });
   },
 }));

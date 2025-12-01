@@ -182,6 +182,9 @@ export function parseRequestBody(body: unknown): { messages: ChatMessage[]; imag
   if (typeof ctx.isGrayscale !== 'boolean') {
     throw new Error('imageContext.isGrayscale must be a boolean');
   }
+  if (ctx.activeTools !== undefined && ctx.activeTools !== null && !Array.isArray(ctx.activeTools)) {
+    throw new Error('imageContext.activeTools must be an array if provided');
+  }
 
   return {
     messages: parsedMessages,

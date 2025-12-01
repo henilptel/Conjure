@@ -13,9 +13,14 @@
 }
 
 body {
-  background-color: #09090b;
-  background-image: radial-gradient(circle, #27272a 1px, transparent 1px);
+  background-color: var(--background);
+  background-image: radial-gradient(circle, var(--dot-color) 1px, transparent 1px);
   background-size: 24px 24px;
+:root {
+  --background: #09090b;
+  --foreground: #fafafa;
+  --dot-color: #27272a;
+}
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }

@@ -14,6 +14,218 @@ import { TOOL_REGISTRY, EFFECT_ORDER } from "./tools-registry";
 let isInitialized = false;
 let initializationPromise: Promise<void> | null = null;
 
+// ============================================================================
+// Worker Manager for Off-Thread Processing
+// ============================================================================
+
+/** Cached WASM bytes for worker initialization */
+let cachedWasmBytes: ArrayBuffer | null = null;
+
+/** Worker response types */
+interface WorkerProcessResponse {
+  type: 'process-complete';
+  requestId: number;
+  pixels: ArrayBuffer;
+  width: number;
+  height: number;
+}
+
+interface WorkerErrorResponse {
+  type: 'process-error' | 'init-error';
+  requestId?: number;
+  error: string;
+}
+
+type WorkerResponse = WorkerProcessResponse | WorkerErrorResponse | { type: 'init-complete' | 'ready' };
+
+/**
+ * Manager for Web Worker-based image processing.
+ * Handles worker lifecycle, initialization, and message passing.
+ */
+class WorkerManager {
+  private worker: Worker | null = null;
+  private isInitialized = false;
+  private initPromise: Promise<void> | null = null;
+  private requestId = 0;
+  private pendingRequests = new Map<number, {
+    resolve: (result: { pixels: Uint8Array; width: number; height: number }) => void;
+    reject: (error: Error) => void;
+  }>();
+
+  /**
+   * Check if Web Workers are supported
+   */
+  static isSupported(): boolean {
+    return typeof Worker !== 'undefined';
+  }
+
+  /**
+   * Initialize the worker with WASM bytes
+   */
+  async initialize(): Promise<void> {
+    if (this.isInitialized) return;
+    if (this.initPromise) return this.initPromise;
+
+    this.initPromise = this._doInitialize();
+    return this.initPromise;
+  }
+
+  private async _doInitialize(): Promise<void> {
+    // Fetch WASM bytes if not cached
+    if (!cachedWasmBytes) {
+      const response = await fetch('/magick.wasm');
+      if (!response.ok) {
+        throw new Error(`Failed to fetch WASM: ${response.status}`);
+      }
+      cachedWasmBytes = await response.arrayBuffer();
+    }
+
+    // Create worker using URL constructor for Next.js compatibility
+    this.worker = new Worker(
+      new URL('./workers/magick.worker.ts', import.meta.url),
+      { type: 'module' }
+    );
+
+    // Set up message handler
+    this.worker.onmessage = (event: MessageEvent<WorkerResponse>) => {
+      this.handleMessage(event.data);
+    };
+
+    this.worker.onerror = (event) => {
+      console.error('Worker error:', event);
+      // Reject all pending requests
+      for (const [, { reject }] of this.pendingRequests) {
+        reject(new Error('Worker error: ' + event.message));
+      }
+      this.pendingRequests.clear();
+    };
+
+    // Wait for worker to be ready, then send init
+    await new Promise<void>((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        reject(new Error('Worker initialization timeout'));
+      }, 10000);
+
+      const originalHandler = this.worker!.onmessage;
+      this.worker!.onmessage = (event: MessageEvent<WorkerResponse>) => {
+        if (event.data.type === 'ready') {
+          // Worker is ready, send init message
+          this.worker!.postMessage({
+            type: 'init',
+            wasmBytes: cachedWasmBytes,
+          }, [cachedWasmBytes!.slice(0)]); // Transfer a copy
+        } else if (event.data.type === 'init-complete') {
+          clearTimeout(timeout);
+          this.worker!.onmessage = originalHandler;
+          this.isInitialized = true;
+          resolve();
+        } else if (event.data.type === 'init-error') {
+          clearTimeout(timeout);
+          reject(new Error((event.data as WorkerErrorResponse).error));
+        }
+      };
+    });
+  }
+
+  private handleMessage(data: WorkerResponse): void {
+    if (data.type === 'process-complete') {
+      const pending = this.pendingRequests.get(data.requestId);
+      if (pending) {
+        this.pendingRequests.delete(data.requestId);
+        pending.resolve({
+          pixels: new Uint8Array(data.pixels),
+          width: data.width,
+          height: data.height,
+        });
+      }
+    } else if (data.type === 'process-error') {
+      const errorData = data as WorkerErrorResponse;
+      if (errorData.requestId !== undefined) {
+        const pending = this.pendingRequests.get(errorData.requestId);
+        if (pending) {
+          this.pendingRequests.delete(errorData.requestId);
+          pending.reject(new Error(errorData.error));
+        }
+      }
+    }
+  }
+
+  /**
+   * Process image in the worker
+   */
+  async process(
+    sourceBytes: Uint8Array,
+    tools: ActiveTool[]
+  ): Promise<{ pixels: Uint8Array; width: number; height: number }> {
+    if (!this.isInitialized || !this.worker) {
+      throw new Error('Worker not initialized');
+    }
+
+    const requestId = ++this.requestId;
+    const bytesBuffer = sourceBytes.buffer.slice(
+      sourceBytes.byteOffset,
+      sourceBytes.byteOffset + sourceBytes.byteLength
+    );
+
+    return new Promise((resolve, reject) => {
+      this.pendingRequests.set(requestId, { resolve, reject });
+
+      // Send to worker with transferable
+      this.worker!.postMessage({
+        type: 'process',
+        requestId,
+        sourceBytes: bytesBuffer,
+        tools: tools.map(t => ({ id: t.id, value: t.value })),
+      }, [bytesBuffer]);
+    });
+  }
+
+  /**
+   * Terminate the worker
+   */
+  dispose(): void {
+    if (this.worker) {
+      this.worker.terminate();
+      this.worker = null;
+    }
+    this.isInitialized = false;
+    this.initPromise = null;
+    this.pendingRequests.clear();
+  }
+
+  /**
+   * Check if worker is ready
+   */
+  isReady(): boolean {
+    return this.isInitialized && this.worker !== null;
+  }
+}
+
+/** Global worker manager instance */
+let globalWorkerManager: WorkerManager | null = null;
+
+/**
+ * Get or create the global worker manager
+ */
+export function getWorkerManager(): WorkerManager {
+  if (!globalWorkerManager) {
+    globalWorkerManager = new WorkerManager();
+  }
+  return globalWorkerManager;
+}
+
+/**
+ * Initialize the worker manager (call early to pre-warm)
+ */
+export async function initializeWorker(): Promise<void> {
+  if (!WorkerManager.isSupported()) {
+    console.warn('Web Workers not supported, falling back to main thread processing');
+    return;
+  }
+  const manager = getWorkerManager();
+  await manager.initialize();
+}
+
 /**
  * Initializes the Magick.WASM library
  * This function is idempotent - calling it multiple times will only initialize once
@@ -144,6 +356,7 @@ class AsyncMutex {
  * - Caches decoded RGBA pixels after initial load
  * - process() uses cached pixels instead of re-decoding from bytes
  * - Memoization: Returns cached result if activeTools haven't changed (dirty-check)
+ * - processInWorker(): Offloads WASM processing to Web Worker (non-blocking)
  * - Significantly reduces CPU usage during slider interactions
  *
  * Requirements: 3.1, 3.2, 3.3, slider-performance 2.1, 2.2, 2.3, 2.4
@@ -170,6 +383,12 @@ export class ImageEngine {
   /** Cached processed result for memoization */
   private lastProcessedResult: ImageData | null = null;
 
+  /** Worker manager instance for off-thread processing */
+  private workerManager: WorkerManager | null = null;
+  
+  /** Whether to prefer worker-based processing */
+  private useWorker: boolean = false;
+
   /**
    * Computes a signature string for an array of ActiveTools for memoization.
    * Tools are sorted by id and serialized to ensure consistent comparison.
@@ -181,6 +400,37 @@ export class ImageEngine {
       .sort((a, b) => a.id.localeCompare(b.id))
       .map(t => `${t.id}:${t.value}`)
       .join('|');
+  }
+
+  /**
+   * Enables or disables worker-based processing.
+   * When enabled, processInWorker() will use a Web Worker for WASM operations.
+   * 
+   * @param enabled - Whether to use worker-based processing
+   */
+  setUseWorker(enabled: boolean): void {
+    this.useWorker = enabled && WorkerManager.isSupported();
+  }
+
+  /**
+   * Initializes the worker manager for off-thread processing.
+   * Call this early (e.g., during image load) to pre-warm the worker.
+   */
+  async initializeWorker(): Promise<void> {
+    if (!WorkerManager.isSupported()) return;
+    
+    if (!this.workerManager) {
+      this.workerManager = getWorkerManager();
+    }
+    await this.workerManager.initialize();
+    this.useWorker = true;
+  }
+
+  /**
+   * Checks if worker-based processing is available and initialized.
+   */
+  isWorkerReady(): boolean {
+    return this.useWorker && this.workerManager?.isReady() === true;
   }
 
   /**
@@ -409,6 +659,81 @@ export class ImageEngine {
         handleError(error, 'ImageMagick.read');
       }
     });
+  }
+
+  /**
+   * Processes the image with the given active tools using a Web Worker.
+   * This offloads WASM processing to a separate thread, preventing UI blocking.
+   * 
+   * Falls back to main-thread process() if worker is not available.
+   * 
+   * Unlike process(), this method does NOT use memoization since it's designed
+   * for final processing after user interaction completes (not during drag).
+   *
+   * @param activeTools - Array of ActiveTool objects specifying effects to apply
+   * @returns Promise<ImageData> with processed pixel data
+   */
+  async processInWorker(activeTools: ActiveTool[]): Promise<ImageData> {
+    // Fall back to main thread if worker not ready
+    if (!this.isWorkerReady() || !this.workerManager) {
+      return this.process(activeTools);
+    }
+
+    if (!isInitialized) {
+      throw new Error('Magick.WASM is not initialized');
+    }
+
+    // Acquire lock to safely access sourceBytes
+    await this.mutex.acquire();
+
+    if (!this.sourceBytes) {
+      this.mutex.release();
+      throw new Error('No image loaded. Call loadImage first.');
+    }
+
+    const sourceBytes = this.sourceBytes;
+    const cachedPixels = this.cachedPixels;
+    const cachedWidth = this.cachedWidth;
+    const cachedHeight = this.cachedHeight;
+
+    // Release lock before worker processing (worker has its own copy)
+    this.mutex.release();
+
+    // If no tools, return cached pixels directly (fast path)
+    if (activeTools.length === 0 && cachedPixels) {
+      return {
+        pixels: new Uint8Array(cachedPixels),
+        width: cachedWidth,
+        height: cachedHeight,
+        originalBytes: sourceBytes,
+      };
+    }
+
+    try {
+      // Process in worker (non-blocking)
+      const result = await this.workerManager.process(sourceBytes, activeTools);
+
+      // Update memoization cache with worker result
+      const currentSignature = this.computeToolsSignature(activeTools);
+      this.lastToolsSignature = currentSignature;
+      this.lastProcessedResult = {
+        pixels: new Uint8Array(result.pixels),
+        width: result.width,
+        height: result.height,
+        originalBytes: sourceBytes,
+      };
+
+      return {
+        pixels: result.pixels,
+        width: result.width,
+        height: result.height,
+        originalBytes: sourceBytes,
+      };
+    } catch (error) {
+      // On worker error, fall back to main thread
+      console.warn('Worker processing failed, falling back to main thread:', error);
+      return this.process(activeTools);
+    }
   }
 
   /**

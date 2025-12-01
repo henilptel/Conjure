@@ -50,14 +50,9 @@ export function useCompareMode(): void {
     };
 
     const handleKeyUp = (event: KeyboardEvent) => {
-      // Only activate when image is loaded (Requirement 6.4)
-      if (!hasImage) return;
-      
-      // Don't trigger compare mode when typing in an input
-      if (isInputFocused()) return;
-      
       // Check for Space key
       if (event.code === 'Space') {
+        // Always disable compare mode on Space release to prevent stuck state
         // Disable compare mode (Requirement 6.2)
         setCompareMode(false);
       }
