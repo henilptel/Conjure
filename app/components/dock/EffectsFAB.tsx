@@ -41,9 +41,9 @@ export default function EffectsFAB({ disabled = false }: EffectsFABProps) {
         disabled={disabled}
         className="fixed right-6 top-1/2 -translate-y-1/2 z-30
                    w-12 h-12 rounded-full
-                   bg-black/60 backdrop-blur-xl border border-white/10
+                   bg-white/10 backdrop-blur-2xl backdrop-saturate-150 border border-white/20
                    flex items-center justify-center
-                   hover:bg-black/70 hover:border-white/20
+                   hover:bg-white/15 hover:border-white/30
                    transition-colors
                    disabled:opacity-50 disabled:cursor-not-allowed"
         aria-label="Open effects panel"

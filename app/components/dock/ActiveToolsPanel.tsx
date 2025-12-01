@@ -95,14 +95,34 @@ export default function ActiveToolsPanel({ disabled = false, onToolSelect }: Act
   const activeTools = useAppStore((state) => state.activeTools);
   const updateToolValue = useAppStore((state) => state.updateToolValue);
   const removeTool = useAppStore((state) => state.removeTool);
+  const previewState = useAppStore((state) => state.previewState);
+  const startPreview = useAppStore((state) => state.startPreview);
+  const updatePreviewValue = useAppStore((state) => state.updatePreviewValue);
+  const commitPreview = useAppStore((state) => state.commitPreview);
   
   const [isExpanded, setIsExpanded] = useState(false);
   const [expandedToolId, setExpandedToolId] = useState<string | null>(null);
 
-  // Direct update - Slider component already handles debouncing internally
+  // Use preview values during drag, otherwise committed values
+  const displayTools = previewState.isDragging ? previewState.previewTools : activeTools;
+
+  // Handle slider change during drag - updates preview state for CSS filter preview
   const handleSliderChange = useCallback((toolId: string, value: number) => {
+    if (!previewState.isDragging) {
+      // Start preview mode if not already dragging
+      startPreview(toolId);
+    }
+    // Update preview value (CSS filters will update instantly)
+    updatePreviewValue(toolId, value);
+  }, [previewState.isDragging, startPreview, updatePreviewValue]);
+
+  // Handle slider commit on pointer release - triggers WASM processing
+  const handleSliderCommit = useCallback((toolId: string, value: number) => {
+    // Update the actual tool value
     updateToolValue(toolId, value);
-  }, [updateToolValue]);
+    // Commit preview (clears preview state, activeTools change triggers WASM)
+    commitPreview();
+  }, [updateToolValue, commitPreview]);
 
   const handleRemoveTool = useCallback((toolId: string, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -126,16 +146,16 @@ export default function ActiveToolsPanel({ disabled = false, onToolSelect }: Act
     return null;
   }
 
-  // Group active tools by category
+  // Group active tools by category (use displayTools for preview values)
   const groupedTools = Object.entries(TOOL_CATEGORIES).map(([categoryId, category]) => ({
     categoryId,
     label: category.label,
-    tools: activeTools.filter(tool => category.tools.includes(tool.id)),
+    tools: displayTools.filter(tool => category.tools.includes(tool.id)),
   })).filter(group => group.tools.length > 0);
 
   // Tools that don't fit any category
   const allCategorizedTools = Object.values(TOOL_CATEGORIES).flatMap(c => c.tools);
-  const uncategorizedTools = activeTools.filter(tool => !allCategorizedTools.includes(tool.id));
+  const uncategorizedTools = displayTools.filter(tool => !allCategorizedTools.includes(tool.id));
 
   return (
     <motion.div
@@ -149,8 +169,8 @@ export default function ActiveToolsPanel({ disabled = false, onToolSelect }: Act
       <motion.button
         onClick={() => setIsExpanded(!isExpanded)}
         className={`flex items-center gap-2 px-3 py-2 rounded-full
-                   bg-black/60 backdrop-blur-xl border border-white/10
-                   text-white hover:bg-black/70 transition-colors
+                   bg-white/10 backdrop-blur-2xl backdrop-saturate-150 border border-white/20
+                   text-white hover:bg-white/15 transition-colors
                    ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
         disabled={disabled}
         whileHover={{ scale: 1.02 }}
@@ -169,7 +189,7 @@ export default function ActiveToolsPanel({ disabled = false, onToolSelect }: Act
             initial={{ opacity: 0, height: 0, marginTop: 0 }}
             animate={{ opacity: 1, height: 'auto', marginTop: 8 }}
             exit={{ opacity: 0, height: 0, marginTop: 0 }}
-            className="bg-black/60 backdrop-blur-xl border border-white/10 rounded-2xl
+            className="bg-white/10 backdrop-blur-2xl backdrop-saturate-150 border border-white/20 rounded-2xl
                        overflow-hidden max-h-[60vh] overflow-y-auto"
             data-testid="active-tools-list"
           >
@@ -198,6 +218,7 @@ export default function ActiveToolsPanel({ disabled = false, onToolSelect }: Act
                       onClick={() => handleToolClick(tool.id)}
                       onRemove={(e) => handleRemoveTool(tool.id, e)}
                       onSliderChange={(value) => handleSliderChange(tool.id, value)}
+                      onSliderCommit={(value) => handleSliderCommit(tool.id, value)}
                     />
                   ))}
                 </div>
@@ -217,6 +238,7 @@ export default function ActiveToolsPanel({ disabled = false, onToolSelect }: Act
                       onClick={() => handleToolClick(tool.id)}
                       onRemove={(e) => handleRemoveTool(tool.id, e)}
                       onSliderChange={(value) => handleSliderChange(tool.id, value)}
+                      onSliderCommit={(value) => handleSliderCommit(tool.id, value)}
                     />
                   ))}
                 </div>
@@ -242,6 +264,7 @@ interface ToolItemProps {
   onClick: () => void;
   onRemove: (e: React.MouseEvent) => void;
   onSliderChange: (value: number) => void;
+  onSliderCommit: (value: number) => void;
 }
 
 const ToolItem = memo(function ToolItem({
@@ -252,6 +275,7 @@ const ToolItem = memo(function ToolItem({
   onClick,
   onRemove,
   onSliderChange,
+  onSliderCommit,
 }: ToolItemProps) {
   const toolConfig = getToolConfig(tool.id);
   const isAtDefault = toolConfig && tool.value === toolConfig.defaultValue;
@@ -319,6 +343,7 @@ const ToolItem = memo(function ToolItem({
                 min={tool.min}
                 max={tool.max}
                 onChange={onSliderChange}
+                onCommit={onSliderCommit}
                 label={tool.label}
                 disabled={disabled}
                 id={`panel-slider-${tool.id}`}

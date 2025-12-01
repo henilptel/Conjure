@@ -63,8 +63,8 @@ function ToastItem({
       exit="exit"
       transition={{ duration: 0.2, ease: 'easeOut' }}
       onClick={handleDismiss}
-      className="px-4 py-3 bg-black/60 backdrop-blur-xl border border-white/10 
-                 rounded-2xl shadow-2xl cursor-pointer hover:bg-black/70 
+      className="px-4 py-2.5 bg-white/10 backdrop-blur-2xl backdrop-saturate-150 border border-white/20 
+                 rounded-full shadow-lg shadow-black/10 cursor-pointer hover:bg-white/15 
                  transition-colors max-w-sm"
       role="alert"
       aria-live="polite"

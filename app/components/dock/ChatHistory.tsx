@@ -60,7 +60,13 @@ export default function ChatHistory({ messages, isLoading }: ChatHistoryProps) {
   // Auto-scroll to bottom when new messages arrive
   useEffect(() => {
     if (isOpen && scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+      const { scrollTop, scrollHeight, clientHeight } = scrollRef.current;
+      const isNearBottom = scrollHeight - scrollTop - clientHeight < 100;
+      
+      // Only auto-scroll if user is already near the bottom
+      if (isNearBottom) {
+        scrollRef.current.scrollTop = scrollHeight;
+      }
     }
   }, [messages, isOpen]);
   
@@ -82,9 +88,9 @@ export default function ChatHistory({ messages, isLoading }: ChatHistoryProps) {
             exit={{ opacity: 0, scale: 0.8 }}
             onClick={() => setIsOpen(true)}
             className="fixed top-4 right-4 z-30 p-3 rounded-full
-                       bg-black/60 backdrop-blur-xl border border-white/10
-                       text-zinc-300 hover:text-white hover:bg-black/70
-                       transition-colors shadow-lg"
+                       bg-white/10 backdrop-blur-2xl backdrop-saturate-150 border border-white/20
+                       text-zinc-300 hover:text-white hover:bg-white/15
+                       transition-colors shadow-lg shadow-black/10"
             aria-label="Show chat history"
             data-testid="chat-history-toggle"
           >
@@ -102,12 +108,12 @@ export default function ChatHistory({ messages, isLoading }: ChatHistoryProps) {
             exit={{ opacity: 0, y: -20, scale: 0.95 }}
             transition={{ duration: 0.2 }}
             className="fixed top-4 right-4 z-30 w-80 max-h-96
-                       bg-black/70 backdrop-blur-xl border border-white/10
-                       rounded-2xl shadow-2xl overflow-hidden"
+                       bg-white/10 backdrop-blur-2xl backdrop-saturate-150 border border-white/20
+                       rounded-2xl shadow-lg shadow-black/10 overflow-hidden"
             data-testid="chat-history-panel"
           >
             {/* Header */}
-            <div className="flex items-center justify-between px-4 py-3 border-b border-white/10">
+            <div className="flex items-center justify-between px-4 py-3 border-b border-white/15">
               <h3 className="text-sm font-medium text-zinc-200">Chat History</h3>
               <button
                 onClick={() => setIsOpen(false)}
@@ -151,8 +157,8 @@ export default function ChatHistory({ messages, isLoading }: ChatHistoryProps) {
             {/* Collapse button */}
             <button
               onClick={() => setIsOpen(false)}
-              className="w-full py-2 border-t border-white/10 text-zinc-400 hover:text-white
-                         hover:bg-white/5 transition-colors flex items-center justify-center gap-1 text-xs"
+              className="w-full py-2 border-t border-white/15 text-zinc-400 hover:text-white
+                         hover:bg-white/10 transition-colors flex items-center justify-center gap-1 text-xs"
             >
               <ChevronUp size={14} />
               Collapse

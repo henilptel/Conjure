@@ -214,8 +214,8 @@ export default function DynamicDock({ disabled = false }: DynamicDockProps) {
       transition={{ duration: 0.2 }}
       className="fixed bottom-8 left-1/2 -translate-x-1/2 z-40
                  h-14 px-4 flex items-center gap-3
-                 bg-black/60 backdrop-blur-xl border border-white/10 
-                 rounded-full shadow-2xl"
+                 bg-white/10 backdrop-blur-2xl backdrop-saturate-150 border border-white/20 
+                 rounded-full shadow-lg shadow-black/10"
       data-testid="dynamic-dock"
       role="toolbar"
       aria-label="AI editing tools"

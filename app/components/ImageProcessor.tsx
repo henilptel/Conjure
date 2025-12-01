@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, ChangeEvent, useLayoutEffect, useEffect } from 'react';
+import { useState, useRef, ChangeEvent, useLayoutEffect, useEffect, useMemo } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Upload, RotateCcw, Eye } from 'lucide-react';
@@ -9,7 +9,7 @@ import { initializeMagick, ImageEngine, ImageData } from '@/lib/magick';
 import { renderImageToCanvas, createCanvasRenderCache, CanvasRenderCache } from '@/lib/canvas';
 import { useAppStore } from '@/lib/store';
 import { cn } from '@/lib/utils';
-import LoadingIndicator from './LoadingIndicator';
+import { mapToolsToCSSPreview } from '@/lib/css-preview';
 
 type ProcessingStatus = 'idle' | 'initializing' | 'processing' | 'complete' | 'error';
 
@@ -35,6 +35,11 @@ const dropZoneVariants = {
  * 
  * Uses selective Zustand subscriptions to prevent unnecessary re-renders.
  * 
+ * Performance Optimization (slider-performance):
+ * - CSS filter preview during slider drag for instant visual feedback
+ * - Web Worker-based WASM processing on slider release (non-blocking)
+ * - Memoized CSS filter string computation
+ * 
  * Requirements: 1.6, 1.7, 3.4, 3.5, 3.6, slider-performance 3.1, 3.2
  */
 export default function ImageProcessor() {
@@ -46,6 +51,9 @@ export default function ImageProcessor() {
   
   // Subscribe to compare mode state (Requirements: 6.1, 6.2, 6.3)
   const isCompareMode = useAppStore((state) => state.isCompareMode);
+  
+  // Subscribe to preview state for CSS filter optimization
+  const previewState = useAppStore((state) => state.previewState);
   
   // Subscribe to actions separately (these are stable references)
   const { setImageState, setProcessingStatus, resetTools } = useAppStore(
@@ -79,6 +87,14 @@ export default function ImageProcessor() {
   // Operation counter for race condition prevention
   const pipelineOperationRef = useRef(0);
 
+  // Compute CSS preview filters when in preview mode (memoized)
+  const cssPreview = useMemo(() => {
+    if (previewState.isDragging) {
+      return mapToolsToCSSPreview(previewState.previewTools);
+    }
+    return null;
+  }, [previewState.isDragging, previewState.previewTools]);
+
   // Render image to canvas when imageData changes (with cached resources)
   useLayoutEffect(() => {
     if (imageData && canvasRef.current) {
@@ -104,9 +120,13 @@ export default function ImageProcessor() {
   // Unified effect pipeline - handles activeTools processing via ImageEngine
   // When activeTools change, process through the engine (Requirements: 3.6)
   // When isCompareMode is true, display original image (Requirements: 6.1, 6.2)
+  // When previewState.isDragging is true, skip WASM processing (CSS filter preview handles it)
   useEffect(() => {
     const engine = engineRef.current;
     if (!engine || !engine.hasImage()) return;
+
+    // Skip WASM processing during preview mode - CSS filters handle visual feedback
+    if (previewState.isDragging) return;
 
     // Increment operation counter to invalidate any in-flight operations
     const operationId = ++pipelineOperationRef.current;
@@ -133,8 +153,7 @@ export default function ImageProcessor() {
     }
 
     // If activeTools is non-empty, use the ImageEngine for processing
-    // Reduced debounce from 300ms to 50ms since input is now debounced at Slider level
-    // (slider-performance Requirements: 4.3)
+    // Use worker-based processing for non-blocking operation
     if (activeTools.length > 0) {
       const timeoutId = setTimeout(async () => {
         if (pipelineOperationRef.current !== operationId) return;
@@ -144,7 +163,10 @@ export default function ImageProcessor() {
         setProcessingStatus('processing');
 
         try {
-          const processedData = await engineRef.current.process(activeTools);
+          // Use worker-based processing if available, otherwise fall back to main thread
+          const processedData = engineRef.current.isWorkerReady()
+            ? await engineRef.current.processInWorker(activeTools)
+            : await engineRef.current.process(activeTools);
           
           if (pipelineOperationRef.current === operationId) {
             setImageData({ ...processedData });
@@ -183,7 +205,7 @@ export default function ImageProcessor() {
     }, 0);
     
     return () => clearTimeout(timeoutId);
-  }, [activeTools, isCompareMode, setProcessingStatus]);
+  }, [activeTools, isCompareMode, previewState.isDragging, setProcessingStatus]);
 
 
   const handleFileSelect = async (event: ChangeEvent<HTMLInputElement>) => {
@@ -241,6 +263,12 @@ export default function ImageProcessor() {
       // Load image using ImageEngine - decodes once (Requirements: 3.5)
       const data = await engineRef.current.loadImage(uint8Array);
       setImageData(data);
+      
+      // Initialize Web Worker for off-thread processing (non-blocking)
+      // Fire-and-forget - worker init happens in background
+      engineRef.current.initializeWorker().catch(err => {
+        console.warn('Worker initialization failed, will use main thread:', err);
+      });
       
       setState(prev => ({
         ...prev,
@@ -300,19 +328,24 @@ export default function ImageProcessor() {
         )}
       </AnimatePresence>
 
-      {/* Loading Indicator - centered overlay */}
+      {/* Loading Indicator - top center, Apple-style glassmorphism */}
       <AnimatePresence>
         {isProcessing && (
           <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="absolute inset-0 z-20 flex items-center justify-center bg-black/20 backdrop-blur-sm"
+            initial={{ opacity: 0, y: -10, scale: 0.95 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -10, scale: 0.95 }}
+            transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+            className="absolute top-4 left-1/2 -translate-x-1/2 z-20 
+                       flex items-center gap-2 px-3 py-1.5
+                       bg-white/10 backdrop-blur-2xl backdrop-saturate-150
+                       border border-white/20 
+                       rounded-full shadow-lg shadow-black/10"
           >
-            <LoadingIndicator 
-              message={state.status === 'initializing' ? 'Initializing image processor...' : 'Processing image...'}
-              size="md"
-            />
+            <div className="w-3.5 h-3.5 rounded-full border-[1.5px] border-white/20 border-t-white animate-spin" />
+            <span className="text-xs font-medium text-white/90">
+              {state.status === 'initializing' ? 'Initializing...' : 'Processing...'}
+            </span>
           </motion.div>
         )}
       </AnimatePresence>
@@ -355,11 +388,18 @@ export default function ImageProcessor() {
       )}
 
       {/* Canvas for Image Display - centered, floating appearance (Requirements: 3.3, 3.4) */}
+      {/* CSS filters applied during preview mode for instant visual feedback */}
       {state.hasImage && (
         <div className="flex items-center justify-center h-full w-full p-8">
           <canvas
             ref={canvasRef}
             className="max-w-full max-h-full"
+            style={{
+              filter: cssPreview?.filter ?? 'none',
+              transform: cssPreview?.transform ?? 'none',
+              // Smooth transition for better UX, but keep it fast
+              transition: previewState.isDragging ? 'none' : 'filter 0.1s ease-out, transform 0.1s ease-out',
+            }}
             data-testid="image-canvas"
           />
         </div>
@@ -372,7 +412,7 @@ export default function ImageProcessor() {
             initial={{ opacity: 0, y: -10 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -10 }}
-            className="absolute top-6 left-1/2 -translate-x-1/2 z-10 flex items-center gap-2 px-4 py-2 bg-black/60 backdrop-blur-xl border border-white/10 rounded-full"
+            className="absolute top-6 left-1/2 -translate-x-1/2 z-10 flex items-center gap-2 px-3 py-1.5 bg-white/10 backdrop-blur-2xl backdrop-saturate-150 border border-white/20 rounded-full shadow-lg shadow-black/10"
             data-testid="compare-mode-indicator"
           >
             <Eye className="w-4 h-4 text-white/80" />
@@ -390,11 +430,11 @@ export default function ImageProcessor() {
           disabled={isProcessing}
           className={cn(
             "absolute bottom-4 left-4 md:bottom-6 md:left-6",
-            "flex items-center gap-2 px-3 py-2 rounded-xl",
-            "backdrop-blur-md border border-white/10 text-sm",
+            "flex items-center gap-2 px-3 py-1.5 rounded-full",
+            "backdrop-blur-2xl backdrop-saturate-150 border border-white/20 text-sm shadow-lg shadow-black/10",
             isProcessing
-              ? "bg-black/20 text-zinc-500 cursor-not-allowed"
-              : "bg-black/40 text-zinc-200 hover:bg-black/60 transition-colors cursor-pointer"
+              ? "bg-white/5 text-zinc-500 cursor-not-allowed"
+              : "bg-white/10 text-zinc-200 hover:bg-white/15 transition-colors cursor-pointer"
           )}
         >
           <RotateCcw className="w-4 h-4" />

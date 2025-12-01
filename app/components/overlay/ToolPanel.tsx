@@ -1,5 +1,6 @@
 'use client';
 
+import { useCallback } from 'react';
 import { X } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useShallow } from 'zustand/react/shallow';
@@ -29,6 +30,10 @@ const toolPanelVariants = {
  * Uses Zustand store for state management with shallow equality selector
  * to prevent unnecessary re-renders.
  * 
+ * Performance Optimization:
+ * - CSS filter preview during slider drag for instant visual feedback
+ * - WASM processing only triggered on slider release (via onCommit)
+ * 
  * Requirements: 1.6, 1.7, slider-performance 3.2, 3.3, 5.1, 5.2, 5.3
  */
 export default function ToolPanel({
@@ -37,13 +42,46 @@ export default function ToolPanel({
   // Get state and actions from Zustand store with shallow equality
   // This prevents re-renders when unrelated state changes
   // (slider-performance Requirements: 3.2, 3.3)
-  const { activeTools, updateToolValue, removeTool } = useAppStore(
+  const { 
+    activeTools, 
+    updateToolValue, 
+    removeTool,
+    previewState,
+    startPreview,
+    updatePreviewValue,
+    commitPreview,
+  } = useAppStore(
     useShallow((state) => ({
       activeTools: state.activeTools,
       updateToolValue: state.updateToolValue,
       removeTool: state.removeTool,
+      previewState: state.previewState,
+      startPreview: state.startPreview,
+      updatePreviewValue: state.updatePreviewValue,
+      commitPreview: state.commitPreview,
     }))
   );
+
+  // Use preview values during drag, otherwise committed values
+  const displayTools = previewState.isDragging ? previewState.previewTools : activeTools;
+
+  // Handle slider change during drag - updates preview state for CSS filter preview
+  const handleSliderChange = useCallback((toolId: string, value: number) => {
+    if (!previewState.isDragging) {
+      // Start preview mode if not already dragging
+      startPreview(toolId);
+    }
+    // Update preview value (CSS filters will update instantly)
+    updatePreviewValue(toolId, value);
+  }, [previewState.isDragging, startPreview, updatePreviewValue]);
+
+  // Handle slider commit on pointer release - triggers WASM processing
+  const handleSliderCommit = useCallback((toolId: string, value: number) => {
+    // Update the actual tool value
+    updateToolValue(toolId, value);
+    // Commit preview (clears preview state, activeTools change triggers WASM)
+    commitPreview();
+  }, [updateToolValue, commitPreview]);
   
   // Use AnimatePresence to handle exit animations (Requirement 5.2)
   return (
@@ -61,7 +99,7 @@ export default function ToolPanel({
           data-testid="tool-panel"
         >
           <div className="flex flex-col gap-4">
-            {activeTools.map((tool) => (
+            {displayTools.map((tool) => (
               <div key={tool.id} className="flex items-center gap-2">
                 <div className="flex-1">
                   <Slider
@@ -70,7 +108,8 @@ export default function ToolPanel({
                     value={tool.value}
                     min={tool.min}
                     max={tool.max}
-                    onChange={(value) => updateToolValue(tool.id, value)}
+                    onChange={(value) => handleSliderChange(tool.id, value)}
+                    onCommit={(value) => handleSliderCommit(tool.id, value)}
                     disabled={disabled}
                   />
                 </div>

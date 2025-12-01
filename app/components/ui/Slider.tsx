@@ -11,6 +11,8 @@ export interface SliderProps {
   min: number;
   max: number;
   onChange: (value: number) => void;
+  /** Called when user releases the slider (pointer up/leave). Used for final processing. */
+  onCommit?: (value: number) => void;
   label: string;
   disabled?: boolean;
   id?: string;
@@ -24,6 +26,10 @@ export interface SliderProps {
  * The slider tracks whether the user is actively dragging to prevent the prop
  * sync from "jumping" the slider handle back to a stale value during interaction.
  * 
+ * Performance Optimization:
+ * - onChange: Called frequently during drag (debounced) - use for CSS preview updates
+ * - onCommit: Called once when user releases slider - use for final WASM processing
+ * 
  * Requirements: 1.1, 1.2, 1.3, slider-performance 3.1, 3.2
  */
 export default function Slider({
@@ -31,6 +37,7 @@ export default function Slider({
   min,
   max,
   onChange,
+  onCommit,
   label,
   disabled = false,
   id,
@@ -45,7 +52,10 @@ export default function Slider({
   // Track whether user is actively dragging to prevent prop sync during interaction
   const isDraggingRef = useRef(false);
   
-  // Debounced callback for actual state updates
+  // Track the last committed value to avoid duplicate commits
+  const lastCommittedValueRef = useRef(value);
+  
+  // Debounced callback for preview updates during drag
   const debouncedOnChange = useDebouncedCallback(onChange, debounceMs);
   
   // Sync local value when prop changes externally (only when not dragging)
@@ -54,6 +64,7 @@ export default function Slider({
   useEffect(() => {
     if (!isDraggingRef.current) {
       setLocalValue(value);
+      lastCommittedValueRef.current = value;
     }
   }, [value]);
 
@@ -61,12 +72,29 @@ export default function Slider({
     const newValue = Number(event.target.value);
     isDraggingRef.current = true;
     setLocalValue(newValue);           // Immediate visual update
-    debouncedOnChange(newValue);       // Debounced callback
+    debouncedOnChange(newValue);       // Debounced callback for preview
   };
   
-  // Handle pointer/mouse up to mark end of drag interaction
+  // Handle pointer/mouse up to mark end of drag interaction and commit final value
   const handlePointerUp = () => {
-    // Use a small timeout to allow the final debounced callback to fire
+    if (!isDraggingRef.current) return;
+    
+    const currentValue = localValue;
+    
+    // Cancel any pending debounced calls to avoid race conditions
+    debouncedOnChange.cancel();
+    
+    // Always call onChange with the final value to ensure state is in sync
+    onChange(currentValue);
+    
+    // Call onCommit for final processing (e.g., WASM in worker)
+    // Only if value has actually changed from last commit
+    if (onCommit && currentValue !== lastCommittedValueRef.current) {
+      lastCommittedValueRef.current = currentValue;
+      onCommit(currentValue);
+    }
+    
+    // Use a small timeout to allow the final callbacks to complete
     // before we allow prop sync again
     setTimeout(() => {
       isDraggingRef.current = false;

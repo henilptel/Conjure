@@ -22,7 +22,6 @@ import {
 } from 'lucide-react';
 import { useAppStore } from '@/lib/store';
 import { getAllToolDefinitions, type ToolDefinition } from '@/lib/tools-registry';
-import { useDebouncedCallback } from '@/lib/hooks';
 import Slider from '@/app/components/ui/Slider';
 
 // ============================================================================
@@ -78,6 +77,10 @@ export default function ToolBrowser({ isOpen, onClose, onToolSelect, initialCate
   const addTool = useAppStore((state) => state.addTool);
   const removeTool = useAppStore((state) => state.removeTool);
   const updateToolValue = useAppStore((state) => state.updateToolValue);
+  const previewState = useAppStore((state) => state.previewState);
+  const startPreview = useAppStore((state) => state.startPreview);
+  const updatePreviewValue = useAppStore((state) => state.updatePreviewValue);
+  const commitPreview = useAppStore((state) => state.commitPreview);
   
   const [expandedToolId, setExpandedToolId] = useState<string | null>(null);
   const [activeCategory, setActiveCategory] = useState<string>(initialCategory || 'color');
@@ -91,14 +94,10 @@ export default function ToolBrowser({ isOpen, onClose, onToolSelect, initialCate
   
   const allTools = getAllToolDefinitions();
   const activeToolIds = new Set(activeTools.map(t => t.id));
-  const activeToolsMap = new Map(activeTools.map(t => [t.id, t]));
-
-  const debouncedUpdate = useDebouncedCallback(
-    useCallback((toolId: string, value: number) => {
-      updateToolValue(toolId, value);
-    }, [updateToolValue]),
-    150
-  );
+  
+  // Use preview values during drag, otherwise committed values
+  const displayTools = previewState.isDragging ? previewState.previewTools : activeTools;
+  const activeToolsMap = new Map(displayTools.map(t => [t.id, t]));
 
   const handleToolClick = useCallback((tool: ToolDefinition) => {
     if (activeToolIds.has(tool.id)) {
@@ -116,9 +115,23 @@ export default function ToolBrowser({ isOpen, onClose, onToolSelect, initialCate
     if (expandedToolId === toolId) setExpandedToolId(null);
   }, [removeTool, expandedToolId]);
 
+  // Handle slider change during drag - updates preview state for CSS filter preview
   const handleSliderChange = useCallback((toolId: string, value: number) => {
-    debouncedUpdate(toolId, value);
-  }, [debouncedUpdate]);
+    if (!previewState.isDragging) {
+      // Start preview mode if not already dragging
+      startPreview(toolId);
+    }
+    // Update preview value (CSS filters will update instantly)
+    updatePreviewValue(toolId, value);
+  }, [previewState.isDragging, startPreview, updatePreviewValue]);
+
+  // Handle slider commit on pointer release - triggers WASM processing
+  const handleSliderCommit = useCallback((toolId: string, value: number) => {
+    // Update the actual tool value
+    updateToolValue(toolId, value);
+    // Commit preview (clears preview state, activeTools change triggers WASM)
+    commitPreview();
+  }, [updateToolValue, commitPreview]);
 
   // Get tools for active category
   const currentCategory = CATEGORIES.find(c => c.id === activeCategory);
@@ -171,15 +184,15 @@ export default function ToolBrowser({ isOpen, onClose, onToolSelect, initialCate
                     whileTap={{ scale: 0.95 }}
                     className={`relative p-3 rounded-xl transition-all duration-200
                                ${isActive 
-                                 ? `bg-gradient-to-br ${config?.gradient} border border-white/20 shadow-lg` 
-                                 : 'bg-black/40 border border-white/5 hover:border-white/10'
+                                 ? 'bg-white/15 backdrop-blur-xl border border-white/25 shadow-lg' 
+                                 : 'bg-white/5 backdrop-blur-xl border border-white/10 hover:bg-white/10 hover:border-white/15'
                                }`}
                     aria-label={category.label}
                     data-testid={`category-tab-${category.id}`}
                   >
                     <CategoryIcon 
                       size={20} 
-                      className={isActive ? 'text-white' : 'text-zinc-500'} 
+                      className={isActive ? 'text-white' : 'text-zinc-400'} 
                     />
                     {activeCount > 0 && (
                       <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full 
@@ -196,7 +209,7 @@ export default function ToolBrowser({ isOpen, onClose, onToolSelect, initialCate
             {/* Main panel */}
             <motion.div
               layout
-              className="w-72 h-full bg-black/80 backdrop-blur-2xl border-l border-white/10
+              className="w-72 h-full bg-black/40 backdrop-blur-2xl backdrop-saturate-150 border-l border-white/20
                          flex flex-col overflow-hidden"
             >
               {/* Header */}
@@ -245,6 +258,7 @@ export default function ToolBrowser({ isOpen, onClose, onToolSelect, initialCate
                         onClick={() => handleToolClick(tool)}
                         onRemove={(e) => handleRemoveTool(tool.id, e)}
                         onSliderChange={(value) => handleSliderChange(tool.id, value)}
+                        onSliderCommit={(value) => handleSliderCommit(tool.id, value)}
                       />
                     </motion.div>
                   ))}
@@ -279,6 +293,7 @@ interface ToolCardProps {
   onClick: () => void;
   onRemove: (e: React.MouseEvent) => void;
   onSliderChange: (value: number) => void;
+  onSliderCommit: (value: number) => void;
 }
 
 function ToolCard({
@@ -290,6 +305,7 @@ function ToolCard({
   onClick,
   onRemove,
   onSliderChange,
+  onSliderCommit,
 }: ToolCardProps) {
   const displayValue = currentValue ?? tool.defaultValue;
 
@@ -363,6 +379,7 @@ function ToolCard({
                 min={tool.min}
                 max={tool.max}
                 onChange={onSliderChange}
+                onCommit={onSliderCommit}
                 label={tool.label}
                 id={`browser-slider-${tool.id}`}
               />
