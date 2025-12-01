@@ -9,7 +9,7 @@
  */
 
 import type { IMagickImage } from '@imagemagick/magick-wasm';
-import { Percentage, PixelInterpolateMethod } from '@imagemagick/magick-wasm';
+import { EFFECT_ORDER, TOOL_EXECUTORS } from './tools-definitions';
 
 /**
  * Definition for a single tool in the registry.
@@ -44,27 +44,7 @@ export interface ToolDefinition {
  * 
  * Requirements: 5.1, 5.2
  */
-export const EFFECT_ORDER: readonly string[] = [
-  // Geometry (applied first - changes canvas)
-  'rotate',
-  // Color adjustments
-  'brightness',
-  'saturation',
-  'hue',
-  'invert',
-  // Detail filters
-  'blur',
-  'sharpen',
-  'charcoal',
-  'edge_detect',
-  'grayscale',
-  // Artistic effects (applied last)
-  'sepia',
-  'contrast',
-  'solarize',
-  'vignette',
-  'wave',
-];
+export { EFFECT_ORDER };
 
 /**
  * Centralized tool registry mapping tool IDs to their configurations and execute functions.
@@ -78,12 +58,7 @@ export const TOOL_REGISTRY: Record<string, ToolDefinition> = {
     min: 0,
     max: 20,
     defaultValue: 0,
-    execute: (image: IMagickImage, value: number): void => {
-      if (value > 0) {
-        // blur(0, sigma) lets ImageMagick auto-calculate kernel size from sigma
-        image.blur(0, value);
-      }
-    },
+    execute: TOOL_EXECUTORS.blur,
   },
 
   grayscale: {
@@ -92,21 +67,7 @@ export const TOOL_REGISTRY: Record<string, ToolDefinition> = {
     min: 0,
     max: 100,
     defaultValue: 0,
-    execute: (image: IMagickImage, value: number): void => {
-      if (value <= 0) {
-        return;
-      }
-      
-      if (value >= 100) {
-        // Full grayscale conversion
-        image.grayscale();
-      } else {
-        // Partial grayscale using modulate (reduce saturation)
-        // modulate takes Percentage objects for brightness, saturation, hue
-        const saturation = new Percentage(100 - value);
-        image.modulate(new Percentage(100), saturation, new Percentage(100));
-      }
-    },
+    execute: TOOL_EXECUTORS.grayscale,
   },
 
   sepia: {
@@ -115,12 +76,7 @@ export const TOOL_REGISTRY: Record<string, ToolDefinition> = {
     min: 0,
     max: 100,
     defaultValue: 0,
-    execute: (image: IMagickImage, value: number): void => {
-      if (value > 0) {
-        // SepiaTone takes a Percentage threshold
-        image.sepiaTone(new Percentage(value));
-      }
-    },
+    execute: TOOL_EXECUTORS.sepia,
   },
 
   contrast: {
@@ -129,16 +85,7 @@ export const TOOL_REGISTRY: Record<string, ToolDefinition> = {
     min: -100,
     max: 100,
     defaultValue: 0,
-    execute: (image: IMagickImage, value: number): void => {
-      if (value === 0) {
-        return;
-      }
-      
-      // Use brightnessContrast which directly accepts percentage values
-      // brightness = 0 (no change), contrast = value (-100 to 100)
-      // This properly handles both positive (increase) and negative (decrease) values
-      image.brightnessContrast(new Percentage(0), new Percentage(value));
-    },
+    execute: TOOL_EXECUTORS.contrast,
   },
 
   // Category A: Color & Light Tools
@@ -148,11 +95,7 @@ export const TOOL_REGISTRY: Record<string, ToolDefinition> = {
     min: 0,
     max: 200,
     defaultValue: 100,
-    execute: (image: IMagickImage, value: number): void => {
-      // modulate(brightness, saturation, hue) - 100 is neutral
-      // No conditional needed since modulate(100, 100, 100) is neutral
-      image.modulate(new Percentage(value), new Percentage(100), new Percentage(100));
-    },
+    execute: TOOL_EXECUTORS.brightness,
   },
 
   saturation: {
@@ -161,10 +104,7 @@ export const TOOL_REGISTRY: Record<string, ToolDefinition> = {
     min: 0,
     max: 300,
     defaultValue: 100,
-    execute: (image: IMagickImage, value: number): void => {
-      // modulate(brightness, saturation, hue) - 100 is neutral
-      image.modulate(new Percentage(100), new Percentage(value), new Percentage(100));
-    },
+    execute: TOOL_EXECUTORS.saturation,
   },
 
   hue: {
@@ -173,10 +113,7 @@ export const TOOL_REGISTRY: Record<string, ToolDefinition> = {
     min: 0,
     max: 200,
     defaultValue: 100,
-    execute: (image: IMagickImage, value: number): void => {
-      // modulate(brightness, saturation, hue) - 100 is neutral
-      image.modulate(new Percentage(100), new Percentage(100), new Percentage(value));
-    },
+    execute: TOOL_EXECUTORS.hue,
   },
 
   invert: {
@@ -185,13 +122,7 @@ export const TOOL_REGISTRY: Record<string, ToolDefinition> = {
     min: 0,
     max: 1,
     defaultValue: 0,
-    execute: (image: IMagickImage, value: number): void => {
-      // Toggle behavior: only apply negate when value > 0
-      if (value > 0) {
-        // negate() inverts all pixel colors
-        image.negate();
-      }
-    },
+    execute: TOOL_EXECUTORS.invert,
   },
 
   // Category B: Detail & Texture Tools
@@ -201,13 +132,7 @@ export const TOOL_REGISTRY: Record<string, ToolDefinition> = {
     min: 0,
     max: 10,
     defaultValue: 0,
-    execute: (image: IMagickImage, value: number): void => {
-      // Only apply when value > 0
-      if (value > 0) {
-        // sharpen(radius, sigma) - radius 0 lets ImageMagick auto-calculate
-        image.sharpen(0, value);
-      }
-    },
+    execute: TOOL_EXECUTORS.sharpen,
   },
 
   charcoal: {
@@ -216,13 +141,7 @@ export const TOOL_REGISTRY: Record<string, ToolDefinition> = {
     min: 0,
     max: 10,
     defaultValue: 0,
-    execute: (image: IMagickImage, value: number): void => {
-      // Only apply when value > 0
-      if (value > 0) {
-        // charcoal(radius, sigma) - radius 0 lets ImageMagick auto-calculate
-        image.charcoal(0, value);
-      }
-    },
+    execute: TOOL_EXECUTORS.charcoal,
   },
 
   edge_detect: {
@@ -231,18 +150,7 @@ export const TOOL_REGISTRY: Record<string, ToolDefinition> = {
     min: 0,
     max: 10,
     defaultValue: 0,
-    execute: (image: IMagickImage, value: number): void => {
-      // Only apply when value > 0
-      if (value > 0) {
-        // cannyEdge(radius, sigma, lowerPercent, upperPercent)
-        // radius: 0 lets ImageMagick auto-calculate
-        // sigma: controls blur before edge detection (value maps 1-10 to sigma)
-        // lowerPercent/upperPercent: thresholds for edge detection (10%, 30% are good defaults)
-        const sigma = value;
-        (image as unknown as { cannyEdge: (radius: number, sigma: number, lower: Percentage, upper: Percentage) => void })
-          .cannyEdge(0, sigma, new Percentage(10), new Percentage(30));
-      }
-    },
+    execute: TOOL_EXECUTORS.edge_detect,
   },
 
   // Category C: Geometry & Distortion Tools
@@ -252,13 +160,7 @@ export const TOOL_REGISTRY: Record<string, ToolDefinition> = {
     min: -180,
     max: 180,
     defaultValue: 0,
-    execute: (image: IMagickImage, value: number): void => {
-      // Only apply when value !== 0
-      // Note: ImageEngine already returns actual dimensions after processing
-      if (value !== 0) {
-        image.rotate(value);
-      }
-    },
+    execute: TOOL_EXECUTORS.rotate,
   },
 
   wave: {
@@ -267,17 +169,7 @@ export const TOOL_REGISTRY: Record<string, ToolDefinition> = {
     min: 0,
     max: 100,
     defaultValue: 0,
-    execute: (image: IMagickImage, value: number): void => {
-      // Only apply when value > 0
-      if (value > 0) {
-        // wave(interpolate, amplitude, length) creates a wave distortion
-        // Scale value 0-100 to amplitude 0-25 for visible but not extreme effect
-        const amplitude = (value / 100) * 25;
-        const wavelength = 150;
-        (image as unknown as { wave: (interpolate: PixelInterpolateMethod, amplitude: number, length: number) => void })
-          .wave(PixelInterpolateMethod.Average, amplitude, wavelength);
-      }
-    },
+    execute: TOOL_EXECUTORS.wave,
   },
 
   // Category D: Artistic Tools
@@ -287,12 +179,7 @@ export const TOOL_REGISTRY: Record<string, ToolDefinition> = {
     min: 0,
     max: 100,
     defaultValue: 0,
-    execute: (image: IMagickImage, value: number): void => {
-      // Only apply when value > 0
-      if (value > 0) {
-        image.solarize(new Percentage(value));
-      }
-    },
+    execute: TOOL_EXECUTORS.solarize,
   },
 
   vignette: {
@@ -301,12 +188,7 @@ export const TOOL_REGISTRY: Record<string, ToolDefinition> = {
     min: 0,
     max: 100,
     defaultValue: 0,
-    execute: (image: IMagickImage, value: number): void => {
-      // Only apply when value > 0
-      if (value > 0) {
-        image.vignette(0, value, 0, 0);
-      }
-    },
+    execute: TOOL_EXECUTORS.vignette,
   },
 };
 

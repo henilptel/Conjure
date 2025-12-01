@@ -15,17 +15,12 @@ import {
   initializeImageMagick,
   MagickFormat,
 } from '@imagemagick/magick-wasm';
-import type { IMagickImage } from '@imagemagick/magick-wasm';
-import { Percentage, PixelInterpolateMethod } from '@imagemagick/magick-wasm';
+
+import { EFFECT_ORDER, TOOL_EXECUTORS } from '../tools-definitions';
 
 // ============================================================================
 // Types
 // ============================================================================
-
-/** Tool definition for executing effects in the worker */
-interface WorkerToolDefinition {
-  execute: (image: IMagickImage, value: number) => void;
-}
 
 /** Active tool passed from main thread */
 interface ActiveTool {
@@ -77,160 +72,6 @@ interface ReadyResponse {
 }
 
 type WorkerResponse = ReadyResponse | InitCompleteResponse | InitErrorResponse | ProcessCompleteResponse | ProcessErrorResponse;
-
-// ============================================================================
-// Effect Order and Registry (mirrored from tools-registry.ts)
-// ============================================================================
-
-/**
- * Effect application order - must match tools-registry.ts
- */
-const EFFECT_ORDER: readonly string[] = [
-  'rotate',
-  'brightness',
-  'saturation', 
-  'hue',
-  'invert',
-  'blur',
-  'sharpen',
-  'charcoal',
-  'edge_detect',
-  'grayscale',
-  'sepia',
-  'contrast',
-  'solarize',
-  'vignette',
-  'wave',
-];
-
-/**
- * Tool registry - mirrors TOOL_REGISTRY from tools-registry.ts
- * Duplicated here since workers can't import from main thread modules easily
- */
-const WORKER_TOOL_REGISTRY: Record<string, WorkerToolDefinition> = {
-  blur: {
-    execute: (image: IMagickImage, value: number): void => {
-      if (value > 0) {
-        image.blur(0, value);
-      }
-    },
-  },
-
-  grayscale: {
-    execute: (image: IMagickImage, value: number): void => {
-      if (value <= 0) return;
-      if (value >= 100) {
-        image.grayscale();
-      } else {
-        const saturation = new Percentage(100 - value);
-        image.modulate(new Percentage(100), saturation, new Percentage(100));
-      }
-    },
-  },
-
-  sepia: {
-    execute: (image: IMagickImage, value: number): void => {
-      if (value > 0) {
-        image.sepiaTone(new Percentage(value));
-      }
-    },
-  },
-
-  contrast: {
-    execute: (image: IMagickImage, value: number): void => {
-      if (value !== 0) {
-        image.brightnessContrast(new Percentage(0), new Percentage(value));
-      }
-    },
-  },
-
-  brightness: {
-    execute: (image: IMagickImage, value: number): void => {
-      image.modulate(new Percentage(value), new Percentage(100), new Percentage(100));
-    },
-  },
-
-  saturation: {
-    execute: (image: IMagickImage, value: number): void => {
-      image.modulate(new Percentage(100), new Percentage(value), new Percentage(100));
-    },
-  },
-
-  hue: {
-    execute: (image: IMagickImage, value: number): void => {
-      image.modulate(new Percentage(100), new Percentage(100), new Percentage(value));
-    },
-  },
-
-  invert: {
-    execute: (image: IMagickImage, value: number): void => {
-      if (value > 0) {
-        image.negate();
-      }
-    },
-  },
-
-  sharpen: {
-    execute: (image: IMagickImage, value: number): void => {
-      if (value > 0) {
-        image.sharpen(0, value);
-      }
-    },
-  },
-
-  charcoal: {
-    execute: (image: IMagickImage, value: number): void => {
-      if (value > 0) {
-        image.charcoal(0, value);
-      }
-    },
-  },
-
-  edge_detect: {
-    execute: (image: IMagickImage, value: number): void => {
-      if (value > 0) {
-        const sigma = value;
-        (image as unknown as { cannyEdge: (radius: number, sigma: number, lower: Percentage, upper: Percentage) => void })
-          .cannyEdge(0, sigma, new Percentage(10), new Percentage(30));
-      }
-    },
-  },
-
-  rotate: {
-    execute: (image: IMagickImage, value: number): void => {
-      if (value !== 0) {
-        image.rotate(value);
-      }
-    },
-  },
-
-  wave: {
-    execute: (image: IMagickImage, value: number): void => {
-      if (value > 0) {
-        const amplitude = (value / 100) * 25;
-        const wavelength = 150;
-        (image as unknown as { wave: (interpolate: PixelInterpolateMethod, amplitude: number, length: number) => void })
-          .wave(PixelInterpolateMethod.Average, amplitude, wavelength);
-      }
-    },
-  },
-
-  solarize: {
-    execute: (image: IMagickImage, value: number): void => {
-      if (value > 0) {
-        image.solarize(new Percentage(value));
-      }
-    },
-  },
-
-  vignette: {
-    execute: (image: IMagickImage, value: number): void => {
-      if (value > 0) {
-        image.vignette(0, value, 0, 0);
-      }
-    },
-  },
-};
 
 // ============================================================================
 // Worker State
@@ -312,9 +153,9 @@ function handleProcess(
       ImageMagick.read(bytes, (image) => {
         // Apply effects
         for (const tool of sortedTools) {
-          const toolDef = WORKER_TOOL_REGISTRY[tool.id];
-          if (toolDef) {
-            toolDef.execute(image, tool.value);
+          const executor = TOOL_EXECUTORS[tool.id];
+          if (executor) {
+            executor(image, tool.value);
           }
         }
 
