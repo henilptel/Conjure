@@ -1,15 +1,14 @@
 'use client';
 
-import { useState, useRef, ChangeEvent, useLayoutEffect, useEffect, useMemo, useCallback } from 'react';
+import { useState, useRef, ChangeEvent, useLayoutEffect, useEffect, useCallback } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Upload, RotateCcw, Eye, AlertTriangle } from 'lucide-react';
-import { validateImageFile, validateImageDimensions, FileValidationResult } from '@/lib/validation';
+import { validateImageFile, FileValidationResult } from '@/lib/validation';
 import { initializeMagick, ImageEngine, ImageData } from '@/lib/magick';
 import { renderImageToCanvas, createCanvasRenderCache, CanvasRenderCache, clearCanvasRenderCache, getCanvasRenderCacheSize } from '@/lib/canvas';
 import { useAppStore } from '@/lib/store';
 import { cn } from '@/lib/utils';
-import { mapToolsToCSSPreview } from '@/lib/css-preview';
 import { formatBytes, MemoryUsageInfo } from '@/lib/memory-management';
 import MemoryStats from './MemoryStats';
 
@@ -59,9 +58,6 @@ export default function ImageProcessor() {
   
   // Subscribe to compare mode state (Requirements: 6.1, 6.2, 6.3)
   const isCompareMode = useAppStore((state) => state.isCompareMode);
-  
-  // Subscribe to preview state for CSS filter optimization
-  const previewState = useAppStore((state) => state.previewState);
   
   // Subscribe to actions separately (these are stable references)
   const { setImageState, setProcessingStatus, resetTools } = useAppStore(
@@ -117,7 +113,7 @@ export default function ImageProcessor() {
   
   // Processing time tracking for stats panel
   const [lastProcessingTime, setLastProcessingTime] = useState(0);
-  const processingStartTimeRef = useRef<number>(0);
+  const [workerActive, setWorkerActive] = useState(false);
   
   // Callbacks for MemoryStats component
   const getEngineStats = useCallback((): MemoryUsageInfo | null => {
@@ -130,16 +126,6 @@ export default function ImageProcessor() {
     const stats = engineRef.current.getFullStats();
     return stats.image;
   }, []);
-  
-  const isWorkerActive = engineRef.current?.isWorkerReady() ?? false;
-
-  // Compute CSS preview filters when in preview mode (memoized)
-  const cssPreview = useMemo(() => {
-    if (previewState.isDragging) {
-      return mapToolsToCSSPreview(previewState.previewTools);
-    }
-    return null;
-  }, [previewState.isDragging, previewState.previewTools]);
 
   // Render image to canvas when imageData changes (with cached resources)
   useLayoutEffect(() => {
@@ -177,13 +163,9 @@ export default function ImageProcessor() {
   // Unified effect pipeline - handles activeTools processing via ImageEngine
   // When activeTools change, process through the engine (Requirements: 3.6)
   // When isCompareMode is true, display original image (Requirements: 6.1, 6.2)
-  // When previewState.isDragging is true, skip WASM processing (CSS filter preview handles it)
   useEffect(() => {
     const engine = engineRef.current;
     if (!engine || !engine.hasImage()) return;
-
-    // Skip WASM processing during preview mode - CSS filters handle visual feedback
-    if (previewState.isDragging) return;
 
     // Increment operation counter to invalidate any in-flight operations
     const operationId = ++pipelineOperationRef.current;
@@ -275,7 +257,7 @@ export default function ImageProcessor() {
     }, 0);
     
     return () => clearTimeout(timeoutId);
-  }, [activeTools, isCompareMode, previewState.isDragging, setProcessingStatus]);
+  }, [activeTools, isCompareMode, setProcessingStatus]);
 
 
   const handleFileSelect = async (event: ChangeEvent<HTMLInputElement>) => {
@@ -355,8 +337,11 @@ export default function ImageProcessor() {
       
       // Initialize Web Worker for off-thread processing (non-blocking)
       // Fire-and-forget - worker init happens in background
-      engineRef.current.initializeWorker().catch(err => {
+      engineRef.current.initializeWorker().then(() => {
+        setWorkerActive(true);
+      }).catch(err => {
         console.warn('Worker initialization failed, will use main thread:', err);
+        setWorkerActive(false);
       });
       
       setState(prev => ({
@@ -503,18 +488,11 @@ export default function ImageProcessor() {
       )}
 
       {/* Canvas for Image Display - centered, floating appearance (Requirements: 3.3, 3.4) */}
-      {/* CSS filters applied during preview mode for instant visual feedback */}
       {state.hasImage && (
         <div className="flex items-center justify-center h-full w-full p-8">
           <canvas
             ref={canvasCallbackRef}
             className="max-w-full max-h-full"
-            style={{
-              filter: cssPreview?.filter ?? 'none',
-              transform: cssPreview?.transform ?? 'none',
-              // Smooth transition for better UX, but keep it fast
-              transition: previewState.isDragging ? 'none' : 'filter 0.1s ease-out, transform 0.1s ease-out',
-            }}
             data-testid="image-canvas"
           />
         </div>
@@ -562,7 +540,7 @@ export default function ImageProcessor() {
         getEngineStats={getEngineStats}
         getImageInfo={getImageInfo}
         lastProcessingTime={lastProcessingTime}
-        isWorkerActive={engineRef.current?.isWorkerReady() ?? false}
+        isWorkerActive={workerActive}
         toggleKey="i"
       />
     </div>

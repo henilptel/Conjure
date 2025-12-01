@@ -62,7 +62,7 @@ export interface AppState {
   // Preview actions for CSS filter optimization
   startPreview: (toolId: string) => void;
   updatePreviewValue: (toolId: string, value: number) => void;
-  commitPreview: () => void;
+  commitPreview: (finalToolId?: string, finalValue?: number) => void;
   cancelPreview: () => void;
 }
 
@@ -198,13 +198,22 @@ export const useAppStore = create<AppState>((set, get) => ({
   /**
    * Commit preview values to activeTools when user releases slider.
    * This triggers the final WASM processing via the activeTools effect.
+   * 
+   * @param finalToolId - Optional tool ID to ensure correct final value
+   * @param finalValue - Optional final value to use (ensures no race condition)
    */
-  commitPreview: () => {
+  commitPreview: (finalToolId?: string, finalValue?: number) => {
     const { previewState } = get();
     if (!previewState.isDragging) return;
     
+    // If final value provided, ensure previewTools has the correct value
+    let toolsToCommit = [...previewState.previewTools];
+    if (finalToolId !== undefined && finalValue !== undefined) {
+      toolsToCommit = updateToolValueInArray(toolsToCommit, finalToolId, finalValue);
+    }
+    
     set({
-      activeTools: [...previewState.previewTools],
+      activeTools: toolsToCommit,
       previewState: defaultPreviewState,
     });
   },

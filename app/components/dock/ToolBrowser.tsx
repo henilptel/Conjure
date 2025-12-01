@@ -77,10 +77,6 @@ export default function ToolBrowser({ isOpen, onClose, onToolSelect, initialCate
   const addTool = useAppStore((state) => state.addTool);
   const removeTool = useAppStore((state) => state.removeTool);
   const updateToolValue = useAppStore((state) => state.updateToolValue);
-  const previewState = useAppStore((state) => state.previewState);
-  const startPreview = useAppStore((state) => state.startPreview);
-  const updatePreviewValue = useAppStore((state) => state.updatePreviewValue);
-  const commitPreview = useAppStore((state) => state.commitPreview);
   
   const [expandedToolId, setExpandedToolId] = useState<string | null>(null);
   const [activeCategory, setActiveCategory] = useState<string>(initialCategory || 'color');
@@ -94,10 +90,7 @@ export default function ToolBrowser({ isOpen, onClose, onToolSelect, initialCate
   
   const allTools = getAllToolDefinitions();
   const activeToolIds = new Set(activeTools.map(t => t.id));
-  
-  // Use preview values during drag, otherwise committed values
-  const displayTools = previewState.isDragging ? previewState.previewTools : activeTools;
-  const activeToolsMap = new Map(displayTools.map(t => [t.id, t]));
+  const activeToolsMap = new Map(activeTools.map(t => [t.id, t]));
 
   const handleToolClick = useCallback((tool: ToolDefinition) => {
     if (activeToolIds.has(tool.id)) {
@@ -115,23 +108,10 @@ export default function ToolBrowser({ isOpen, onClose, onToolSelect, initialCate
     if (expandedToolId === toolId) setExpandedToolId(null);
   }, [removeTool, expandedToolId]);
 
-  // Handle slider change during drag - updates preview state for CSS filter preview
+  // Handle slider change - directly updates tool value for WASM processing
   const handleSliderChange = useCallback((toolId: string, value: number) => {
-    if (!previewState.isDragging) {
-      // Start preview mode if not already dragging
-      startPreview(toolId);
-    }
-    // Update preview value (CSS filters will update instantly)
-    updatePreviewValue(toolId, value);
-  }, [previewState.isDragging, startPreview, updatePreviewValue]);
-
-  // Handle slider commit on pointer release - triggers WASM processing
-  const handleSliderCommit = useCallback((toolId: string, value: number) => {
-    // Update the actual tool value
     updateToolValue(toolId, value);
-    // Commit preview (clears preview state, activeTools change triggers WASM)
-    commitPreview();
-  }, [updateToolValue, commitPreview]);
+  }, [updateToolValue]);
 
   // Get tools for active category
   const currentCategory = CATEGORIES.find(c => c.id === activeCategory);
@@ -257,7 +237,6 @@ export default function ToolBrowser({ isOpen, onClose, onToolSelect, initialCate
                         onClick={() => handleToolClick(tool)}
                         onRemove={(e) => handleRemoveTool(tool.id, e)}
                         onSliderChange={(value) => handleSliderChange(tool.id, value)}
-                        onSliderCommit={(value) => handleSliderCommit(tool.id, value)}
                       />
                     </motion.div>
                   ))}
@@ -292,7 +271,6 @@ interface ToolCardProps {
   onClick: () => void;
   onRemove: (e: React.MouseEvent) => void;
   onSliderChange: (value: number) => void;
-  onSliderCommit: (value: number) => void;
 }
 
 function ToolCard({
@@ -304,7 +282,6 @@ function ToolCard({
   onClick,
   onRemove,
   onSliderChange,
-  onSliderCommit,
 }: ToolCardProps) {
   const displayValue = currentValue ?? tool.defaultValue;
 
@@ -378,7 +355,6 @@ function ToolCard({
                 min={tool.min}
                 max={tool.max}
                 onChange={onSliderChange}
-                onCommit={onSliderCommit}
                 label={tool.label}
                 id={`browser-slider-${tool.id}`}
               />
