@@ -36,6 +36,20 @@ export const initialDockState: DockLocalState = {
 /** Maximum number of processed message IDs to keep in cache to prevent unbounded growth */
 const MAX_PROCESSED_IDS = 500;
 
+/**
+ * Simple hash function to generate a unique string identifier from text
+ * Used to create unique keys without storing entire text content
+ */
+function hashString(str: string): string {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    const char = str.charCodeAt(i);
+    hash = ((hash << 5) - hash) + char;
+    hash = hash & hash; // Convert to 32bit integer
+  }
+  return hash.toString(36);
+}
+
 export function dockReducer(state: DockLocalState, action: DockAction): DockLocalState {
   switch (action.type) {
     case 'ENTER_AI_MODE':
@@ -137,11 +151,14 @@ export default function DynamicDock({ disabled = false }: DynamicDockProps) {
     for (const message of messages) {
       if (message.role !== 'assistant' || !message.parts) continue;
       
-      for (const part of message.parts) {
+      for (let index = 0; index < message.parts.length; index++) {
+        const part = message.parts[index];
         // Handle text responses - show as toast (Requirements: 4.1)
         if (part.type === 'text' && part.text) {
-          // Create a unique key for this text part
-          const textKey = `${message.id}-text-${part.text.substring(0, 50)}`;
+          // Create a unique key for this text part using message ID, index, and hash of text
+          // This prevents collisions when different parts share the same prefix
+          const textHash = hashString(part.text);
+          const textKey = `${message.id}-text-${index}-${textHash}`;
           if (!processedMessageIds.current.has(textKey)) {
             addProcessedId(textKey);
             newToasts.push(part.text);
@@ -156,30 +173,54 @@ export default function DynamicDock({ disabled = false }: DynamicDockProps) {
           const toastKey = `toast-${part.toolCallId}`;
           if (processedMessageIds.current.has(toastKey)) continue;
           
-          // Process when tool output is available (v5 state)
-          if (part.state === 'output-available' || part.state === 'input-available') {
+          // Only process 'output-available' state to avoid duplicate toasts
+          // (both 'output-available' and 'input-available' can be present)
+          if (part.state === 'output-available') {
             addProcessedId(toastKey);
             
             if (toolName === 'show_tools') {
-              const toolInput = part.input as {
-                tools?: Array<{ name: string; initial_value?: number }>;
-              };
-              if (toolInput?.tools && Array.isArray(toolInput.tools)) {
-                const toolNames = toolInput.tools.map((t) => t.name);
-                const toastText =
-                  toolNames.length === 1
-                    ? `Added ${toolNames[0]} effect`
-                    : `Added ${toolNames.join(', ')} effects`;
-                newToasts.push(toastText);
+              // Runtime validation: verify part.input is an object with expected structure
+              if (
+                part.input &&
+                typeof part.input === 'object' &&
+                'tools' in part.input &&
+                Array.isArray(part.input.tools) &&
+                part.input.tools.length > 0
+              ) {
+                // Safely map and filter tool names
+                const toolNames = part.input.tools
+                  .filter((t): t is { name: string } => t && typeof t === 'object' && 'name' in t && typeof t.name === 'string')
+                  .map((t) => t.name);
+                
+                if (toolNames.length > 0) {
+                  const toastText =
+                    toolNames.length === 1
+                      ? `Added ${toolNames[0]} effect`
+                      : `Added ${toolNames.join(', ')} effects`;
+                  newToasts.push(toastText);
+                }
               }
             } else if (toolName === 'remove_tools') {
-              const toolInput = part.input as { tools?: string[] };
-              if (toolInput?.tools && Array.isArray(toolInput.tools)) {
-                const toastText =
-                  toolInput.tools.length === 1
-                    ? `Removed ${toolInput.tools[0]} effect`
-                    : `Removed ${toolInput.tools.join(', ')} effects`;
-                newToasts.push(toastText);
+              // Runtime validation: verify part.input is an object with string array
+              if (
+                part.input &&
+                typeof part.input === 'object' &&
+                'tools' in part.input &&
+                Array.isArray(part.input.tools) &&
+                part.input.tools.length > 0
+              ) {
+                // Filter for string elements only
+                const toolNames = part.input.tools.filter(
+                  (t): t is string => typeof t === 'string'
+                );
+                
+                if (toolNames.length > 0) {
+                  const toastText =
+                    toolNames.length === 1
+                      ? `Removed ${toolNames[0]} effect`
+                      : `Removed ${toolNames.join(', ')} effects`;
+                  newToasts.push(toastText);
+                }
               }
             }
           }

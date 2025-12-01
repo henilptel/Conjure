@@ -146,27 +146,3 @@ export function addToast(
 export function removeToast(queue: ToastMessage[], id: string): ToastMessage[] {
   return queue.filter((toast) => toast.id !== id);
 }
-
-/**
- * Pure function to check if a toast should be auto-dismissed based on timestamp
- * Requirements: 4.2
- */
-export function shouldAutoDismiss(
-  toast: ToastMessage,
-  currentTime: number,
-  autoDismissMs: number = DEFAULT_AUTO_DISMISS_MS
-): boolean {
-  return currentTime - toast.timestamp >= autoDismissMs;
-}
-
-/**
- * Pure function to get toasts that should be dismissed
- * Requirements: 4.2
- */
-export function getExpiredToasts(
-  queue: ToastMessage[],
-  currentTime: number,
-  autoDismissMs: number = DEFAULT_AUTO_DISMISS_MS
-): ToastMessage[] {
-  return queue.filter((toast) => shouldAutoDismiss(toast, currentTime, autoDismissMs));
-}

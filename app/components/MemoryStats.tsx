@@ -111,6 +111,16 @@ export default function MemoryStats({
   // Processing time tracking
   const processingTimesRef = useRef<number[]>([]);
   
+  // Refs for stable function references to prevent effect re-runs
+  const getEngineStatsRef = useRef(getEngineStats);
+  const getImageInfoRef = useRef(getImageInfo);
+  
+  // Sync refs to latest function props (no dependencies to avoid re-triggering effects)
+  useEffect(() => {
+    getEngineStatsRef.current = getEngineStats;
+    getImageInfoRef.current = getImageInfo;
+  });
+  
   // Update processing stats when lastProcessingTime changes
   useEffect(() => {
     if (lastProcessingTime > 0) {
@@ -154,11 +164,11 @@ export default function MemoryStats({
     if (!isOpen) return;
     
     const updateStats = () => {
-      // Get engine stats
-      const engineStats = getEngineStats?.() ?? null;
+      // Get engine stats using ref to avoid effect re-runs
+      const engineStats = getEngineStatsRef.current?.() ?? null;
       
-      // Get image info
-      const imageInfo = getImageInfo?.() ?? null;
+      // Get image info using ref to avoid effect re-runs
+      const imageInfo = getImageInfoRef.current?.() ?? null;
       
       // Calculate average processing time
       const avgProcessingTime = processingTimesRef.current.length > 0
@@ -217,7 +227,7 @@ export default function MemoryStats({
     const intervalId = setInterval(updateStats, 500);
     
     return () => clearInterval(intervalId);
-  }, [isOpen, getEngineStats, getImageInfo, lastProcessingTime, isWorkerActive]);
+  }, [isOpen, lastProcessingTime, isWorkerActive]);
   
   // Keyboard shortcut handler
   useEffect(() => {
