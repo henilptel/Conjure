@@ -50,9 +50,11 @@ function ToastItem({
 
   // Auto-dismiss timer (Requirements: 4.2)
   useEffect(() => {
-    const timer = setTimeout(handleDismiss, autoDismissMs);
+    const elapsed = Date.now() - message.timestamp;
+    const remaining = Math.max(0, autoDismissMs - elapsed);
+    const timer = setTimeout(handleDismiss, remaining);
     return () => clearTimeout(timer);
-  }, [handleDismiss, autoDismissMs]);
+  }, [handleDismiss, autoDismissMs, message.timestamp]);
 
   return (
     <motion.div
@@ -124,7 +126,7 @@ export function addToast(
   maxQueueSize = 5
 ): ToastMessage[] {
   const newToast: ToastMessage = {
-    id: `toast-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+    id: `toast-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`,
     text,
     timestamp: Date.now(),
   };

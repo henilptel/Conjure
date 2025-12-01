@@ -161,9 +161,9 @@ export default function ToolBrowser({ isOpen, onClose, onToolSelect, initialCate
           
           {/* Right side panel */}
           <motion.div
-            initial={{ opacity: 0, x: 100 }}
-            animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: 100 }}
+            initial={{ x: '100%' }}
+            animate={{ x: 0 }}
+            exit={{ x: '100%' }}
             transition={{ type: 'spring', damping: 30, stiffness: 400 }}
             className="fixed right-0 top-0 bottom-0 z-50 flex"
             data-testid="tool-browser"
@@ -207,9 +207,8 @@ export default function ToolBrowser({ isOpen, onClose, onToolSelect, initialCate
             </div>
 
             {/* Main panel */}
-            <motion.div
-              layout
-              className="w-72 h-full bg-black/40 backdrop-blur-2xl backdrop-saturate-150 border-l border-white/20
+            <div
+              className="w-72 h-full bg-zinc-900/95 border-l border-white/20
                          flex flex-col overflow-hidden"
             >
               {/* Header */}
@@ -271,7 +270,7 @@ export default function ToolBrowser({ isOpen, onClose, onToolSelect, initialCate
                   Click to add • Tap active effect to adjust
                 </p>
               </div>
-            </motion.div>
+            </div>
           </motion.div>
         </>
       )}

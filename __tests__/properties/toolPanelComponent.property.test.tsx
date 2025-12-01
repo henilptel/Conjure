@@ -89,7 +89,7 @@ describe('Property 6: Empty Tools Hides Panel', () => {
           expect(removeButton).toBeInTheDocument();
         });
         
-        unmount();
+
       }),
       { numRuns: 100 }
     );

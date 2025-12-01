@@ -1,15 +1,17 @@
 'use client';
 
-import { useState, useRef, ChangeEvent, useLayoutEffect, useEffect, useMemo } from 'react';
+import { useState, useRef, ChangeEvent, useLayoutEffect, useEffect, useMemo, useCallback } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Upload, RotateCcw, Eye } from 'lucide-react';
-import { validateImageFile, FileValidationResult } from '@/lib/validation';
+import { Upload, RotateCcw, Eye, AlertTriangle } from 'lucide-react';
+import { validateImageFile, validateImageDimensions, FileValidationResult } from '@/lib/validation';
 import { initializeMagick, ImageEngine, ImageData } from '@/lib/magick';
-import { renderImageToCanvas, createCanvasRenderCache, CanvasRenderCache } from '@/lib/canvas';
+import { renderImageToCanvas, createCanvasRenderCache, CanvasRenderCache, clearCanvasRenderCache, getCanvasRenderCacheSize } from '@/lib/canvas';
 import { useAppStore } from '@/lib/store';
 import { cn } from '@/lib/utils';
 import { mapToolsToCSSPreview } from '@/lib/css-preview';
+import { formatBytes, MemoryUsageInfo } from '@/lib/memory-management';
+import MemoryStats from './MemoryStats';
 
 type ProcessingStatus = 'idle' | 'initializing' | 'processing' | 'complete' | 'error';
 
@@ -17,6 +19,12 @@ interface ImageProcessorState {
   status: ProcessingStatus;
   error: string | null;
   hasImage: boolean;
+  /** Warning message for non-fatal issues like downscaling */
+  warning: string | null;
+  /** Whether the image was downscaled for processing */
+  wasDownscaled: boolean;
+  /** Original dimensions before downscaling */
+  originalDimensions: { width: number; height: number } | null;
 }
 
 // Drop Zone animation variants (Framer Motion) - Requirements: 3.1, 3.2
@@ -70,6 +78,9 @@ export default function ImageProcessor() {
     status: 'idle',
     error: null,
     hasImage: false,
+    warning: null,
+    wasDownscaled: false,
+    originalDimensions: null,
   });
   
   // ImageEngine instance for optimized processing (Requirements: 3.4)
@@ -84,8 +95,43 @@ export default function ImageProcessor() {
   const canvasCtxRef = useRef<CanvasRenderingContext2D | null>(null);
   const canvasRenderCacheRef = useRef<CanvasRenderCache>(createCanvasRenderCache());
   
+  // Callback ref to detect canvas element changes and invalidate cached context
+  const canvasCallbackRef = useCallback((node: HTMLCanvasElement | null) => {
+    // Store the element reference
+    canvasRef.current = node;
+    
+    // Clear cached context when canvas element changes (mount/unmount/remount)
+    // This prevents stale context references
+    if (canvasCtxRef.current) {
+      canvasCtxRef.current = null;
+    }
+    
+    // If we have a new canvas element, get fresh context
+    if (node) {
+      canvasCtxRef.current = node.getContext('2d');
+    }
+  }, []);
+  
   // Operation counter for race condition prevention
   const pipelineOperationRef = useRef(0);
+  
+  // Processing time tracking for stats panel
+  const [lastProcessingTime, setLastProcessingTime] = useState(0);
+  const processingStartTimeRef = useRef<number>(0);
+  
+  // Callbacks for MemoryStats component
+  const getEngineStats = useCallback((): MemoryUsageInfo | null => {
+    if (!engineRef.current) return null;
+    return engineRef.current.getDetailedMemoryUsage();
+  }, []);
+  
+  const getImageInfo = useCallback(() => {
+    if (!engineRef.current?.hasImage()) return null;
+    const stats = engineRef.current.getFullStats();
+    return stats.image;
+  }, []);
+  
+  const isWorkerActive = engineRef.current?.isWorkerReady() ?? false;
 
   // Compute CSS preview filters when in preview mode (memoized)
   const cssPreview = useMemo(() => {
@@ -98,23 +144,34 @@ export default function ImageProcessor() {
   // Render image to canvas when imageData changes (with cached resources)
   useLayoutEffect(() => {
     if (imageData && canvasRef.current) {
-      // Get or cache the canvas context
-      if (!canvasCtxRef.current) {
-        canvasCtxRef.current = canvasRef.current.getContext('2d');
-      }
+      // Always get fresh context from current canvas element with null check
+      // This ensures we never use a stale context from an unmounted canvas
+      const ctx = canvasCtxRef.current ?? canvasRef.current.getContext('2d');
       
-      if (canvasCtxRef.current) {
+      if (ctx) {
+        // Update cache if we got a fresh context
+        if (!canvasCtxRef.current) {
+          canvasCtxRef.current = ctx;
+        }
+        
         renderImageToCanvas(
-          canvasCtxRef.current,
+          ctx,
           canvasRef.current,
           imageData.pixels,
           imageData.width,
           imageData.height,
           canvasRenderCacheRef.current
         );
+        
+        // Report canvas render cache size to ImageEngine for memory tracking
+        if (engineRef.current) {
+          const cacheSize = getCanvasRenderCacheSize(canvasRenderCacheRef.current);
+          engineRef.current.setCanvasRenderCacheSize(cacheSize);
+        }
       }
     }
   }, [imageData]);
+
 
 
   // Unified effect pipeline - handles activeTools processing via ImageEngine
@@ -138,9 +195,13 @@ export default function ImageProcessor() {
         if (!engineRef.current?.hasImage()) return;
         
         try {
+          const startTime = performance.now();
           const originalData = await engineRef.current.process([]);
+          const endTime = performance.now();
+          
           if (pipelineOperationRef.current === operationId) {
             setImageData({ ...originalData });
+            setLastProcessingTime(endTime - startTime);
             setState(prev => ({ ...prev, status: 'complete' }));
             setProcessingStatus('complete');
           }
@@ -163,13 +224,18 @@ export default function ImageProcessor() {
         setProcessingStatus('processing');
 
         try {
+          const startTime = performance.now();
+          
           // Use worker-based processing if available, otherwise fall back to main thread
           const processedData = engineRef.current.isWorkerReady()
             ? await engineRef.current.processInWorker(activeTools)
             : await engineRef.current.process(activeTools);
           
+          const endTime = performance.now();
+          
           if (pipelineOperationRef.current === operationId) {
             setImageData({ ...processedData });
+            setLastProcessingTime(endTime - startTime);
             setState(prev => ({ ...prev, status: 'complete' }));
             setProcessingStatus('complete');
           }
@@ -193,9 +259,13 @@ export default function ImageProcessor() {
       if (!engineRef.current?.hasImage()) return;
       
       try {
+        const startTime = performance.now();
         const originalData = await engineRef.current.process([]);
+        const endTime = performance.now();
+        
         if (pipelineOperationRef.current === operationId) {
           setImageData({ ...originalData });
+          setLastProcessingTime(endTime - startTime);
           setState(prev => ({ ...prev, status: 'complete' }));
           setProcessingStatus('complete');
         }
@@ -224,6 +294,9 @@ export default function ImageProcessor() {
         error: validationResult.error || 'Invalid file',
         hasImage: false,
         status: 'error',
+        warning: null,
+        wasDownscaled: false,
+        originalDimensions: null,
       }));
       setProcessingStatus('error');
       // Reset the file input
@@ -237,6 +310,7 @@ export default function ImageProcessor() {
     setState(prev => ({
       ...prev,
       error: null,
+      warning: null,
       status: 'initializing',
     }));
     setProcessingStatus('initializing');
@@ -260,9 +334,24 @@ export default function ImageProcessor() {
         engineRef.current = new ImageEngine();
       }
       
-      // Load image using ImageEngine - decodes once (Requirements: 3.5)
+      // Clear any existing canvas cache to free memory before loading new image
+      clearCanvasRenderCache(canvasRenderCacheRef.current);
+      
+      // Load image using ImageEngine - decodes once, may downscale (Requirements: 3.5)
       const data = await engineRef.current.loadImage(uint8Array);
       setImageData(data);
+      
+      // Check if image was downscaled
+      const wasDownscaled = engineRef.current.wasDownscaled();
+      const originalDims = engineRef.current.getOriginalDimensions();
+      
+      // Build warning message if downscaled
+      let warning: string | null = null;
+      if (wasDownscaled && originalDims) {
+        const memUsage = engineRef.current.getMemoryUsage();
+        warning = `Image (${originalDims.width}×${originalDims.height}) was downscaled to ${data.width}×${data.height} for processing. ` +
+                  `Memory usage: ${formatBytes(memUsage.totalBytes)}`;
+      }
       
       // Initialize Web Worker for off-thread processing (non-blocking)
       // Fire-and-forget - worker init happens in background
@@ -274,10 +363,14 @@ export default function ImageProcessor() {
         ...prev,
         hasImage: true,
         status: 'complete',
+        warning,
+        wasDownscaled,
+        originalDimensions: originalDims,
       }));
       setProcessingStatus('complete');
 
       // Update Zustand store with new image state
+      // Use processed dimensions for display, but store original for reference
       setImageState({
         hasImage: true,
         width: data.width,
@@ -292,6 +385,9 @@ export default function ImageProcessor() {
         ...prev,
         error: errorMessage,
         status: 'error',
+        warning: null,
+        wasDownscaled: false,
+        originalDimensions: null,
       }));
       setProcessingStatus('error');
     }
@@ -306,6 +402,8 @@ export default function ImageProcessor() {
         engineRef.current.disposeAsync();
         engineRef.current = null;
       }
+      // Clear canvas render cache to free memory
+      clearCanvasRenderCache(canvasRenderCacheRef.current);
     };
   }, []);
 
@@ -324,6 +422,23 @@ export default function ImageProcessor() {
             className="absolute top-6 left-1/2 -translate-x-1/2 z-10 p-4 bg-red-900/40 backdrop-blur-md border border-red-500/30 rounded-xl"
           >
             <p className="text-sm text-red-400">{state.error}</p>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Warning Display - positioned below error/loading, shows downscaling info */}
+      <AnimatePresence>
+        {state.warning && !isProcessing && (
+          <motion.div
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+            className="absolute top-4 right-4 z-10 flex items-center gap-2 px-3 py-2 
+                       bg-amber-900/30 backdrop-blur-md border border-amber-500/30 rounded-lg
+                       max-w-xs"
+          >
+            <AlertTriangle className="w-4 h-4 text-amber-400 flex-shrink-0" />
+            <p className="text-xs text-amber-300">{state.warning}</p>
           </motion.div>
         )}
       </AnimatePresence>
@@ -392,7 +507,7 @@ export default function ImageProcessor() {
       {state.hasImage && (
         <div className="flex items-center justify-center h-full w-full p-8">
           <canvas
-            ref={canvasRef}
+            ref={canvasCallbackRef}
             className="max-w-full max-h-full"
             style={{
               filter: cssPreview?.filter ?? 'none',
@@ -441,6 +556,15 @@ export default function ImageProcessor() {
           Reset
         </button>
       )}
+      
+      {/* Stats for Nerds - Memory diagnostics panel */}
+      <MemoryStats
+        getEngineStats={getEngineStats}
+        getImageInfo={getImageInfo}
+        lastProcessingTime={lastProcessingTime}
+        isWorkerActive={engineRef.current?.isWorkerReady() ?? false}
+        toggleKey="i"
+      />
     </div>
   );
 }

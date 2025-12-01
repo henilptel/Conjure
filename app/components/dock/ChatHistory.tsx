@@ -87,27 +87,27 @@ export default function ChatHistory({ messages, isLoading }: ChatHistoryProps) {
             animate={{ opacity: 1, scale: 1 }}
             exit={{ opacity: 0, scale: 0.8 }}
             onClick={() => setIsOpen(true)}
-            className="fixed top-4 right-4 z-30 p-3 rounded-full
+            className="fixed top-4 right-4 z-30 p-2 rounded-full
                        bg-white/10 backdrop-blur-2xl backdrop-saturate-150 border border-white/20
                        text-zinc-300 hover:text-white hover:bg-white/15
                        transition-colors shadow-lg shadow-black/10"
             aria-label="Show chat history"
             data-testid="chat-history-toggle"
           >
-            <MessageSquare size={20} />
+            <MessageSquare size={16} />
           </motion.button>
         )}
       </AnimatePresence>
 
-      {/* Chat history panel - anchored to top right */}
+      {/* Chat history panel - positioned below toggle button */}
       <AnimatePresence>
         {isOpen && (
           <motion.div
-            initial={{ opacity: 0, y: -20, scale: 0.95 }}
+            initial={{ opacity: 0, y: -10, scale: 0.95 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: -20, scale: 0.95 }}
+            exit={{ opacity: 0, y: -10, scale: 0.95 }}
             transition={{ duration: 0.2 }}
-            className="fixed top-4 right-4 z-30 w-80 max-h-96
+            className="fixed top-14 right-4 z-30 w-72 max-h-[calc(50vh-6rem)] flex flex-col
                        bg-white/10 backdrop-blur-2xl backdrop-saturate-150 border border-white/20
                        rounded-2xl shadow-lg shadow-black/10 overflow-hidden"
             data-testid="chat-history-panel"
@@ -127,7 +127,7 @@ export default function ChatHistory({ messages, isLoading }: ChatHistoryProps) {
             {/* Messages */}
             <div
               ref={scrollRef}
-              className="p-3 space-y-3 max-h-72 overflow-y-auto"
+              className="p-3 space-y-3 flex-1 overflow-y-auto"
             >
               {visibleMessages.map((message) => {
                 const text = getMessageText(message);

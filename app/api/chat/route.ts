@@ -227,6 +227,11 @@ export async function POST(req: Request) {
                 };
               })
               .filter((config): config is NonNullable<typeof config> => config !== null);
+            
+            if (toolConfigs.length === 0) {
+              throw new Error('None of the requested tools are valid');
+            }
+            
             return { tools: toolConfigs };
           },
         }),

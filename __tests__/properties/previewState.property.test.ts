@@ -262,9 +262,10 @@ describe('Preview State Management', () => {
   describe('resetTools', () => {
     it('property: also clears preview state', () => {
       fc.assert(
-        fc.property(arbActiveTools, arbToolId, (tools, toolId) => {
+        fc.property(arbActiveTools.filter(t => t.length > 0), (tools) => {
           resetStore();
           useAppStore.setState({ activeTools: tools });
+          const toolId = tools[0].id;
           
           useAppStore.getState().startPreview(toolId);
           useAppStore.getState().resetTools();

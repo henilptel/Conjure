@@ -306,6 +306,11 @@ describe('Property 9: Toast Queue Order', () => {
 /**
  * Generate a valid tool ID from TOOL_REGISTRY
  */
+// Ensure TOOL_REGISTRY has at least one entry for tests
+if (Object.keys(TOOL_REGISTRY).length === 0) {
+  throw new Error('TOOL_REGISTRY must have at least one entry for property tests');
+}
+
 const registeredToolIdArb = fc.constantFrom(...Object.keys(TOOL_REGISTRY));
 
 /**

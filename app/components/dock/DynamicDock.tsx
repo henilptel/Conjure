@@ -7,7 +7,6 @@ import { isToolUIPart, getToolName } from 'ai';
 import { useAppStore } from '@/lib/store';
 import { useChatContext } from '@/app/contexts/ChatContext';
 import GhostToast, { addToast, removeToast, ToastMessage } from './GhostToast';
-import ChatHistory from './ChatHistory';
 
 // ============================================================================
 // Types (kept for backwards compatibility with tests)
@@ -262,9 +261,6 @@ export default function DynamicDock({ disabled = false }: DynamicDockProps) {
       messages={toastQueue}
       onDismiss={handleToastDismiss}
     />
-    
-    {/* Chat History - rendered outside dock to avoid overlap */}
-    <ChatHistory messages={messages} isLoading={isLoading} />
     </>
   );
 }

@@ -10,6 +10,18 @@ import {
 } from "@imagemagick/magick-wasm";
 import type { ActiveTool } from "./types";
 import { TOOL_REGISTRY, EFFECT_ORDER } from "./tools-registry";
+import {
+  validateImageDimensions,
+  MAX_PROCESSING_DIMENSION,
+  calculateRGBABufferSize,
+} from "./validation";
+import {
+  MemoryTracker,
+  IdleCleanupManager,
+  calculateDownscaledDimensions,
+  IDLE_CLEANUP_TIMEOUT_MS,
+  MemoryUsageInfo,
+} from "./memory-management";
 
 let isInitialized = false;
 let initializationPromise: Promise<void> | null = null;
@@ -341,11 +353,17 @@ class AsyncMutex {
 }
 
 /**
- * ImageEngine class for optimized image processing.
+ * ImageEngine class for optimized image processing with memory management.
  *
  * This class maintains a reference to the decoded source image to avoid
  * redundant decoding operations during slider interactions. When processing,
  * it uses cached pixel data instead of re-decoding from compressed bytes.
+ *
+ * Memory Management:
+ * - Tracks memory usage across all buffers (sourceBytes, cachedPixels, etc.)
+ * - Supports downscaling large images for processing (configurable threshold)
+ * - Provides idle cleanup to release memory after inactivity
+ * - Stores original dimensions for export upscaling
  *
  * Thread Safety:
  * - Uses an AsyncMutex to protect shared state (sourceBytes, cachedPixels, etc.)
@@ -371,11 +389,20 @@ export class ImageEngine {
   /** Cached decoded RGBA pixel data - avoids re-decoding on every process() */
   private cachedPixels: Uint8Array | null = null;
   
-  /** Cached image width */
+  /** Cached image width (may be downscaled for processing) */
   private cachedWidth: number = 0;
   
-  /** Cached image height */
+  /** Cached image height (may be downscaled for processing) */
   private cachedHeight: number = 0;
+  
+  /** Original image width (before any downscaling) */
+  private originalWidth: number = 0;
+  
+  /** Original image height (before any downscaling) */
+  private originalHeight: number = 0;
+  
+  /** Scale factor applied during load (1.0 = no downscaling) */
+  private loadScale: number = 1.0;
   
   /** Last processed tools signature for memoization */
   private lastToolsSignature: string = '';
@@ -388,6 +415,35 @@ export class ImageEngine {
   
   /** Whether to prefer worker-based processing */
   private useWorker: boolean = false;
+  
+  /** Memory usage tracker */
+  private memoryTracker = new MemoryTracker();
+  
+  /** Idle cleanup manager for memory optimization */
+  private idleCleanupManager: IdleCleanupManager;
+  
+  /** Whether automatic downscaling is enabled */
+  private autoDownscale: boolean = true;
+  
+  /** Maximum dimension for processing (configurable) */
+  private maxProcessingDimension: number = MAX_PROCESSING_DIMENSION;
+
+  constructor(options?: {
+    autoDownscale?: boolean;
+    maxProcessingDimension?: number;
+    idleCleanupTimeoutMs?: number;
+  }) {
+    this.autoDownscale = options?.autoDownscale ?? true;
+    this.maxProcessingDimension = options?.maxProcessingDimension ?? MAX_PROCESSING_DIMENSION;
+    this.idleCleanupManager = new IdleCleanupManager(
+      options?.idleCleanupTimeoutMs ?? IDLE_CLEANUP_TIMEOUT_MS
+    );
+    
+    // Set up idle cleanup to clear memoization cache
+    this.idleCleanupManager.setCleanupCallback(() => {
+      this.clearMemoizationCache();
+    });
+  }
 
   /**
    * Computes a signature string for an array of ActiveTools for memoization.
@@ -400,6 +456,134 @@ export class ImageEngine {
       .sort((a, b) => a.id.localeCompare(b.id))
       .map(t => `${t.id}:${t.value}`)
       .join('|');
+  }
+  
+  /**
+   * Updates memory tracking for current buffers
+   */
+  private updateMemoryTracking(): void {
+    if (this.sourceBytes) {
+      this.memoryTracker.record('sourceBytes', this.sourceBytes.byteLength);
+    } else {
+      this.memoryTracker.clear('sourceBytes');
+    }
+    
+    if (this.cachedPixels) {
+      this.memoryTracker.record('cachedPixels', this.cachedPixels.byteLength);
+    } else {
+      this.memoryTracker.clear('cachedPixels');
+    }
+    
+    if (this.lastProcessedResult) {
+      this.memoryTracker.record('processedResult', this.lastProcessedResult.pixels.byteLength);
+    } else {
+      this.memoryTracker.clear('processedResult');
+    }
+  }
+  
+  /**
+   * Clears the memoization cache to free memory.
+   * Called by idle cleanup or manually when memory pressure is high.
+   */
+  clearMemoizationCache(): void {
+    this.lastToolsSignature = '';
+    this.lastProcessedResult = null;
+    this.memoryTracker.clear('processedResult');
+  }
+  
+  /**
+   * Sets the canvas render cache size for memory tracking.
+   * Should be called by the component that owns the canvas render cache.
+   * @param sizeBytes - Size of the canvas render cache in bytes (0 if empty)
+   */
+  setCanvasRenderCacheSize(sizeBytes: number): void {
+    if (sizeBytes > 0) {
+      this.memoryTracker.record('canvasRenderCache', sizeBytes);
+    } else {
+      this.memoryTracker.clear('canvasRenderCache');
+    }
+  }
+  
+  /**
+   * Gets current memory usage information (simple version)
+   */
+  getMemoryUsage(): { totalBytes: number; budgetPercent: number } {
+    this.updateMemoryTracking();
+    const info = this.memoryTracker.getUsageInfo();
+    return {
+      totalBytes: info.totalSize,
+      budgetPercent: info.budgetUsagePercent,
+    };
+  }
+  
+  /**
+   * Gets detailed memory usage info for diagnostics panel
+   */
+  getDetailedMemoryUsage(): MemoryUsageInfo {
+    this.updateMemoryTracking();
+    return this.memoryTracker.getUsageInfo();
+  }
+  
+  /**
+   * Gets comprehensive stats for the "Stats for Nerds" panel
+   */
+  getFullStats(): {
+    memory: MemoryUsageInfo;
+    image: {
+      originalWidth: number;
+      originalHeight: number;
+      processingWidth: number;
+      processingHeight: number;
+      wasDownscaled: boolean;
+      loadScale: number;
+    } | null;
+    isWorkerActive: boolean;
+  } {
+    this.updateMemoryTracking();
+    
+    const hasImage = this.cachedPixels !== null;
+    
+    return {
+      memory: this.memoryTracker.getUsageInfo(),
+      image: hasImage ? {
+        originalWidth: this.originalWidth,
+        originalHeight: this.originalHeight,
+        processingWidth: this.cachedWidth,
+        processingHeight: this.cachedHeight,
+        wasDownscaled: this.loadScale < 1.0,
+        loadScale: this.loadScale,
+      } : null,
+      isWorkerActive: this.isWorkerReady(),
+    };
+  }
+  
+  /**
+   * Gets original (pre-downscaling) dimensions
+   */
+  getOriginalDimensions(): { width: number; height: number } | null {
+    if (this.originalWidth === 0 || this.originalHeight === 0) return null;
+    return { width: this.originalWidth, height: this.originalHeight };
+  }
+  
+  /**
+   * Gets the scale factor applied during image load
+   */
+  getLoadScale(): number {
+    return this.loadScale;
+  }
+  
+  /**
+   * Checks if the image was downscaled during load
+   */
+  wasDownscaled(): boolean {
+    return this.loadScale < 1.0;
+  }
+  
+  /**
+   * Resets the idle timer (call on user activity to delay cleanup)
+   */
+  resetIdleTimer(): void {
+    this.idleCleanupManager.resetTimer();
   }
 
   /**
@@ -435,7 +619,8 @@ export class ImageEngine {
 
   /**
    * Loads an image from bytes, decodes once, and caches the pixel data.
-   * This method should be called once when an image is uploaded.
+   * If the image exceeds the processing dimension limit, it will be downscaled.
+   * Original dimensions are preserved for export upscaling.
    * 
    * Thread-safe: Acquires mutex before accessing shared state.
    * Lock is released after ImageMagick.read callback completes.
@@ -458,6 +643,7 @@ export class ImageEngine {
 
     // Store the original bytes
     this.sourceBytes = new Uint8Array(bytes);
+    this.memoryTracker.record('sourceBytes', this.sourceBytes.byteLength);
 
     return new Promise<ImageData>((resolve, reject) => {
       let released = false;
@@ -484,24 +670,57 @@ export class ImageEngine {
         // Read the image to get dimensions and pixel data
         ImageMagick.read(this.sourceBytes!, (image) => {
           try {
-            const width = image.width;
-            const height = image.height;
+            // Store original dimensions
+            this.originalWidth = image.width;
+            this.originalHeight = image.height;
+            
+            // Validate dimensions
+            const dimensionValidation = validateImageDimensions(image.width, image.height);
+            if (!dimensionValidation.isValid) {
+              handleError(new Error(dimensionValidation.error), 'dimension validation');
+              return;
+            }
+            
+            // Check if downscaling is needed
+            let targetWidth = image.width;
+            let targetHeight = image.height;
+            this.loadScale = 1.0;
+            
+            if (this.autoDownscale && dimensionValidation.needsDownscaling) {
+              const scaled = calculateDownscaledDimensions(
+                image.width,
+                image.height,
+                this.maxProcessingDimension
+              );
+              targetWidth = scaled.width;
+              targetHeight = scaled.height;
+              this.loadScale = scaled.scale;
+              
+              // Resize the image for processing
+              image.resize(targetWidth, targetHeight);
+            }
 
             // Write to RGBA format for canvas and cache
             image.write(MagickFormat.Rgba, (pixels) => {
               try {
                 // Cache the decoded pixels (Requirements: slider-performance 2.1)
                 this.cachedPixels = new Uint8Array(pixels);
-                this.cachedWidth = width;
-                this.cachedHeight = height;
+                this.cachedWidth = targetWidth;
+                this.cachedHeight = targetHeight;
+                
+                // Update memory tracking
+                this.memoryTracker.record('cachedPixels', this.cachedPixels.byteLength);
+                
+                // Start idle cleanup timer
+                this.idleCleanupManager.resetTimer();
                 
                 // Release lock after callback completes
                 releaseMutex();
                 
                 resolve({
                   pixels: new Uint8Array(pixels),
-                  width,
-                  height,
+                  width: targetWidth,
+                  height: targetHeight,
                   originalBytes: this.sourceBytes!,
                 });
               } catch (writeCallbackError) {
@@ -546,18 +765,24 @@ export class ImageEngine {
       this.mutex.release();
       throw new Error('No image loaded. Call loadImage first.');
     }
+    
+    // Reset idle timer on activity
+    this.idleCleanupManager.resetTimer();
 
     // Capture references to shared state while holding lock
     const sourceBytes = this.sourceBytes;
     const cachedPixels = this.cachedPixels;
     const cachedWidth = this.cachedWidth;
     const cachedHeight = this.cachedHeight;
+    const loadScale = this.loadScale;
+    const maxDim = this.maxProcessingDimension;
 
     // If no tools, return cached pixels directly (fast path)
     if (activeTools.length === 0) {
       // Clear memoization cache for empty tools case
       this.lastToolsSignature = '';
       this.lastProcessedResult = null;
+      this.memoryTracker.clear('processedResult');
       
       this.mutex.release();
       return {
@@ -606,6 +831,16 @@ export class ImageEngine {
       try {
         ImageMagick.read(sourceBytes, (image) => {
           try {
+            // Apply downscaling if needed (same as during load)
+            if (loadScale < 1.0) {
+              const scaled = calculateDownscaledDimensions(
+                image.width,
+                image.height,
+                maxDim
+              );
+              image.resize(scaled.width, scaled.height);
+            }
+            
             // Sort tools by EFFECT_ORDER for consistent application
             const sortedTools = [...activeTools].sort((a, b) => {
               const aIndex = EFFECT_ORDER.indexOf(a.id);
@@ -642,6 +877,9 @@ export class ImageEngine {
                   height: image.height,
                   originalBytes: sourceBytes,
                 };
+                
+                // Update memory tracking
+                this.memoryTracker.record('processedResult', this.lastProcessedResult.pixels.byteLength);
                 
                 // Release lock after callback completes
                 releaseMutex();
@@ -690,6 +928,9 @@ export class ImageEngine {
       this.mutex.release();
       throw new Error('No image loaded. Call loadImage first.');
     }
+    
+    // Reset idle timer on activity
+    this.idleCleanupManager.resetTimer();
 
     const sourceBytes = this.sourceBytes;
     const cachedPixels = this.cachedPixels;
@@ -722,6 +963,9 @@ export class ImageEngine {
         height: result.height,
         originalBytes: sourceBytes,
       };
+      
+      // Update memory tracking
+      this.memoryTracker.record('processedResult', this.lastProcessedResult.pixels.byteLength);
 
       return {
         pixels: result.pixels,
@@ -746,6 +990,9 @@ export class ImageEngine {
    * Requirements: 3.3, slider-performance 2.4
    */
   async disposeAsync(): Promise<void> {
+    // Cancel any pending idle cleanup
+    this.idleCleanupManager.dispose();
+    
     // Acquire lock to ensure no operations are in progress
     await this.mutex.acquire();
     try {
@@ -767,9 +1014,14 @@ export class ImageEngine {
     this.cachedPixels = null;
     this.cachedWidth = 0;
     this.cachedHeight = 0;
+    this.originalWidth = 0;
+    this.originalHeight = 0;
+    this.loadScale = 1.0;
     // Clear memoization cache
     this.lastToolsSignature = '';
     this.lastProcessedResult = null;
+    // Clear memory tracking
+    this.memoryTracker.clearAll();
   }
 
   /**

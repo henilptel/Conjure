@@ -61,7 +61,7 @@ const REQUIRED_PROPERTIES: (keyof ToolDefinition)[] = [
  * For any query to TOOL_REGISTRY, the registry SHALL contain exactly 15 tools,
  * each with all required properties (id, label, min, max, defaultValue, execute function).
  * The tool IDs SHALL be: blur, grayscale, sepia, contrast, brightness, saturation, hue,
- * invert, sharpen, charcoal, edge_detect, rotate, implode, solarize, vignette.
+ * invert, sharpen, charcoal, edge_detect, rotate, wave, solarize, vignette.
  */
 describe('Property 3: Registry Completeness', () => {
   it('TOOL_REGISTRY contains exactly 15 tools', () => {
