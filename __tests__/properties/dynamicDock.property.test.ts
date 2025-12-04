@@ -107,6 +107,12 @@ describe('Property 7: Toast Auto-Dismiss', () => {
 // ============================================================================
 
 /**
+ * Generate a non-whitespace string (addToast trims and rejects whitespace-only strings)
+ */
+const nonWhitespaceStringArb = fc.string({ minLength: 1, maxLength: 100 })
+  .filter(s => s.trim().length > 0);
+
+/**
  * **Feature: dynamic-dock, Property 9: Toast Queue Order**
  * **Validates: Requirements 4.4**
  * 
@@ -117,13 +123,13 @@ describe('Property 9: Toast Queue Order', () => {
     fc.assert(
       fc.property(
         toastQueueArb,
-        fc.string({ minLength: 1, maxLength: 100 }),
+        nonWhitespaceStringArb,
         (queue, newText) => {
           const result = addToast(queue, newText);
           
-          // New toast should be at the end
+          // New toast should be at the end (text is trimmed by addToast)
           const lastToast = result[result.length - 1];
-          expect(lastToast.text).toBe(newText);
+          expect(lastToast.text).toBe(newText.trim());
           
           // All previous toasts should maintain their relative order
           const originalIds = queue.map(t => t.id);
@@ -142,7 +148,7 @@ describe('Property 9: Toast Queue Order', () => {
   it('addToast preserves FIFO order when adding multiple toasts sequentially', () => {
     fc.assert(
       fc.property(
-        fc.array(fc.string({ minLength: 1, maxLength: 50 }), { minLength: 1, maxLength: 5 }),
+        fc.array(nonWhitespaceStringArb, { minLength: 1, maxLength: 5 }),
         (texts) => {
           let queue: ToastMessage[] = [];
           const maxQueueSize = 5; // Explicit limit
@@ -152,9 +158,9 @@ describe('Property 9: Toast Queue Order', () => {
             queue = addToast(queue, text, maxQueueSize);
           }
           
-          // Toasts should be in the order they were added
+          // Toasts should be in the order they were added (trimmed)
           for (let i = 0; i < texts.length; i++) {
-            expect(queue[i].text).toBe(texts[i]);
+            expect(queue[i].text).toBe(texts[i].trim());
           }
         }
       ),
@@ -165,7 +171,7 @@ describe('Property 9: Toast Queue Order', () => {
   it('addToast limits queue size to maxQueueSize (default 5)', () => {
     fc.assert(
       fc.property(
-        fc.array(fc.string({ minLength: 1, maxLength: 50 }), { minLength: 6, maxLength: 10 }),
+        fc.array(nonWhitespaceStringArb, { minLength: 6, maxLength: 10 }),
         fc.integer({ min: 1, max: 10 }),
         (texts, maxQueueSize) => {
           let queue: ToastMessage[] = [];
@@ -178,8 +184,8 @@ describe('Property 9: Toast Queue Order', () => {
           // Queue should not exceed maxQueueSize
           expect(queue.length).toBeLessThanOrEqual(maxQueueSize);
           
-          // Most recent toasts should be preserved (FIFO - oldest dropped)
-          const expectedTexts = texts.slice(-maxQueueSize);
+          // Most recent toasts should be preserved (FIFO - oldest dropped, trimmed)
+          const expectedTexts = texts.slice(-maxQueueSize).map(t => t.trim());
           for (let i = 0; i < queue.length; i++) {
             expect(queue[i].text).toBe(expectedTexts[i]);
           }
