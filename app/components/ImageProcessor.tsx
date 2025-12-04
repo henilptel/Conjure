@@ -160,102 +160,61 @@ export default function ImageProcessor() {
 
 
 
-  // Unified effect pipeline - handles activeTools processing via ImageEngine
-  // When activeTools change, process through the engine (Requirements: 3.6)
-  // When isCompareMode is true, display original image (Requirements: 6.1, 6.2)
+  // Unified effect pipeline - all tools flow through activeTools
+  // Compare mode shows original by processing with empty array
+  // This eliminates the "hybrid state" anti-pattern - no special cases
+  // (Requirements: 3.6, 6.1, 6.2)
   useEffect(() => {
     const engine = engineRef.current;
     if (!engine || !engine.hasImage()) return;
 
     // Increment operation counter to invalidate any in-flight operations
     const operationId = ++pipelineOperationRef.current;
+    
+    // Determine which tools to apply:
+    // - Compare mode: empty array (shows original)
+    // - Normal mode: activeTools (may be empty, which also shows original)
+    const toolsToApply = isCompareMode ? [] : activeTools;
+    
+    // Only show processing indicator when actually applying effects
+    const isApplyingEffects = toolsToApply.length > 0;
 
-    // When compare mode is active, show original image (Requirements: 6.1, 6.2)
-    if (isCompareMode) {
-      const timeoutId = setTimeout(async () => {
-        if (pipelineOperationRef.current !== operationId) return;
-        if (!engineRef.current?.hasImage()) return;
-        
-        try {
-          const startTime = performance.now();
-          const originalData = await engineRef.current.process([]);
-          const endTime = performance.now();
-          
-          if (pipelineOperationRef.current === operationId) {
-            setImageData({ ...originalData });
-            setLastProcessingTime(endTime - startTime);
-            setState(prev => ({ ...prev, status: 'complete' }));
-            setProcessingStatus('complete');
-          }
-        } catch {
-          // Ignore errors for original display
-        }
-      }, 0);
-      
-      return () => clearTimeout(timeoutId);
-    }
-
-    // If activeTools is non-empty, use the ImageEngine for processing
-    // Use worker-based processing for non-blocking operation
-    if (activeTools.length > 0) {
-      const timeoutId = setTimeout(async () => {
-        if (pipelineOperationRef.current !== operationId) return;
-        if (!engineRef.current?.hasImage()) return;
-
-        setState(prev => ({ ...prev, error: null, status: 'processing' }));
-        setProcessingStatus('processing');
-
-        try {
-          const startTime = performance.now();
-          
-          // Use worker-based processing if available, otherwise fall back to main thread
-          const processedData = engineRef.current.isWorkerReady()
-            ? await engineRef.current.processInWorker(activeTools)
-            : await engineRef.current.process(activeTools);
-          
-          const endTime = performance.now();
-          
-          if (pipelineOperationRef.current === operationId) {
-            setImageData({ ...processedData });
-            setLastProcessingTime(endTime - startTime);
-            setState(prev => ({ ...prev, status: 'complete' }));
-            setProcessingStatus('complete');
-          }
-        } catch (err) {
-          if (pipelineOperationRef.current === operationId) {
-            const errorMessage = err instanceof Error 
-              ? err.message 
-              : 'Failed to apply effects. Please try again.';
-            setState(prev => ({ ...prev, error: errorMessage, status: 'error' }));
-            setProcessingStatus('error');
-          }
-        }
-      }, 50);
-
-      return () => clearTimeout(timeoutId);
-    }
-
-    // No activeTools - show original image
     const timeoutId = setTimeout(async () => {
       if (pipelineOperationRef.current !== operationId) return;
       if (!engineRef.current?.hasImage()) return;
-      
+
+      if (isApplyingEffects) {
+        setState(prev => ({ ...prev, error: null, status: 'processing' }));
+        setProcessingStatus('processing');
+      }
+
       try {
         const startTime = performance.now();
-        const originalData = await engineRef.current.process([]);
+        
+        // Single unified processing path - ImageEngine handles empty arrays correctly
+        const processedData = engineRef.current.isWorkerReady() && isApplyingEffects
+          ? await engineRef.current.processInWorker(toolsToApply)
+          : await engineRef.current.process(toolsToApply);
+        
         const endTime = performance.now();
         
         if (pipelineOperationRef.current === operationId) {
-          setImageData({ ...originalData });
+          setImageData({ ...processedData });
           setLastProcessingTime(endTime - startTime);
           setState(prev => ({ ...prev, status: 'complete' }));
           setProcessingStatus('complete');
         }
-      } catch {
-        // Ignore errors for original display
+      } catch (err) {
+        if (pipelineOperationRef.current === operationId) {
+          const errorMessage = err instanceof Error 
+            ? err.message 
+            : 'Failed to apply effects. Please try again.';
+          setState(prev => ({ ...prev, error: errorMessage, status: 'error' }));
+          setProcessingStatus('error');
+        }
       }
-    }, 0);
-    
+    }, isApplyingEffects ? 50 : 0); // Slight delay only when processing effects
+
     return () => clearTimeout(timeoutId);
   }, [activeTools, isCompareMode, setProcessingStatus]);
 
