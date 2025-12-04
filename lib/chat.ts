@@ -182,6 +182,20 @@ export function parseRequestBody(body: unknown): { messages: ChatMessage[]; imag
   if (typeof ctx.isGrayscale !== 'boolean') {
     throw new Error('imageContext.isGrayscale must be a boolean');
   }
+  if (ctx.activeTools !== undefined && ctx.activeTools !== null && !Array.isArray(ctx.activeTools)) {
+    throw new Error('imageContext.activeTools must be an array if provided');
+  }
+  if (Array.isArray(ctx.activeTools)) {
+    for (const tool of ctx.activeTools) {
+      if (!tool || typeof tool !== 'object') {
+        throw new Error('Each activeTools item must be an object');
+      }
+      const toolObj = tool as Record<string, unknown>;
+      if (typeof toolObj.label !== 'string' || typeof toolObj.value !== 'number') {
+        throw new Error('Each activeTools item must have label (string) and value (number) properties');
+      }
+    }
+  }
 
   return {
     messages: parsedMessages,

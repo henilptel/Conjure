@@ -67,19 +67,14 @@ describe('Property 6: System prompt includes all registry tools', () => {
   });
 
   it('should include min and max values for each tool in the generated tools prompt', () => {
-    fc.assert(
-      fc.property(fc.constant(null), () => {
-        const toolsPrompt = generateToolsPrompt();
-        const toolDefinitions = getAllToolDefinitions();
-        
-        // Every tool's min and max should appear in the prompt
-        for (const tool of toolDefinitions) {
-          expect(toolsPrompt).toContain(String(tool.min));
-          expect(toolsPrompt).toContain(String(tool.max));
-        }
-      }),
-      { numRuns: 100 }
-    );
+    const toolsPrompt = generateToolsPrompt();
+    const toolDefinitions = getAllToolDefinitions();
+    
+    // Every tool's min and max should appear in the prompt
+    for (const tool of toolDefinitions) {
+      expect(toolsPrompt).toContain(String(tool.min));
+      expect(toolsPrompt).toContain(String(tool.max));
+    }
   });
 
   it('should include all registry tools in the system message for any ImageState', () => {
@@ -136,21 +131,16 @@ describe('Property 6: System prompt includes all registry tools', () => {
   });
 
   it('should format each tool line with id, label, and range', () => {
-    fc.assert(
-      fc.property(fc.constant(null), () => {
-        const toolsPrompt = generateToolsPrompt();
-        const toolDefinitions = getAllToolDefinitions();
-        
-        // Each tool should have a properly formatted line
-        for (const tool of toolDefinitions) {
-          // Line should start with "- {id}:" format
-          expect(toolsPrompt).toMatch(new RegExp(`- ${tool.id}:`));
-          // Line should contain the label
-          expect(toolsPrompt).toContain(tool.label);
-        }
-      }),
-      { numRuns: 100 }
-    );
+    const toolsPrompt = generateToolsPrompt();
+    const toolDefinitions = getAllToolDefinitions();
+    
+    // Each tool should have a properly formatted line
+    for (const tool of toolDefinitions) {
+      // Line should start with "- {id}:" format
+      expect(toolsPrompt).toMatch(new RegExp(`- ${tool.id}:`));
+      // Line should contain the label
+      expect(toolsPrompt).toContain(tool.label);
+    }
   });
 });
 

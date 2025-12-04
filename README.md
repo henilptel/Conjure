@@ -14,7 +14,7 @@ The AI assistant doesn't just answer questions - it generates the exact UI contr
 - **AI-Generated Controls**: Ask for an effect and the AI summons the appropriate sliders to the HUD panel
 - **Tool Calling**: Uses Vercel AI SDK v5 tool calling to dynamically render UI components
 - **Initial Values**: AI can set starting values when creating controls (e.g., "add a strong blur" starts at higher intensity)
-- **Glassmorphism HUD Panel**: Floating tool panel overlays the canvas with a modern frosted-glass aesthetic
+- **Dynamic Dock**: Floating dock with tool browser, active tools panel, and chat history
 - **Smooth Animations**: Framer Motion powers panel entry/exit animations
 
 ### Image Processing (15 Effects)
@@ -45,13 +45,14 @@ The AI assistant doesn't just answer questions - it generates the exact UI contr
 ### Core Libraries
 
 - **Next.js 16** with App Router
+- **React 19** with latest features
 - **@imagemagick/magick-wasm** for client-side image processing
 - **Vercel AI SDK v5** with `useChat`, `streamText`, and tool calling
 - **Groq API** with Llama-3.3-70b-versatile model
 - **Zustand** for global state management
 - **Framer Motion** for animations
 - **TypeScript** for type safety
-- **Tailwind CSS** for styling
+- **Tailwind CSS v4** for styling
 - **Lucide React** for icons
 
 ### Key Design Decisions
@@ -72,7 +73,7 @@ The AI assistant doesn't just answer questions - it generates the exact UI contr
 
 **Tool Registry Pattern**:
 - Centralized `TOOL_REGISTRY` follows Open-Closed Principle
-- Each tool defines: id, label, min/max, defaultValue, and execute function
+- Each tool defines: id, label, min/max, defaultValue, icon, and execute function
 - `EFFECT_ORDER` array ensures deterministic processing order
 - Adding new tools requires only a registry entry—no pipeline changes
 
@@ -87,11 +88,14 @@ The AI assistant doesn't just answer questions - it generates the exact UI contr
 - `lib/validation.ts` - File type validation
 - `lib/chat.ts` - Chat utilities and system message builder
 - `lib/types.ts` - Shared types and tool state functions
-- `lib/tools-registry.ts` - Centralized tool definitions and effect order
+- `lib/tools-registry.ts` - Centralized tool definitions
+- `lib/tools-definitions.ts` - Effect order and tool executors
 - `lib/store.ts` - Zustand global state store
+- `lib/hooks.ts` - Custom React hooks
+- `lib/memory-management.ts` - Memory optimization utilities
 - `app/components/ImageProcessor.tsx` - Main UI with unified effects pipeline
-- `app/components/ChatInterface.tsx` - AI chat with tool call handling
-- `app/components/overlay/ToolPanel.tsx` - Glassmorphism HUD panel with animations
+- `app/components/dock/` - Dynamic dock UI components
+- `app/components/overlay/ToolPanel.tsx` - Glassmorphism HUD panel
 - `app/components/ui/Slider.tsx` - Reusable slider component
 - `app/api/chat/route.ts` - API route with tool definitions
 
@@ -125,7 +129,7 @@ npm run dev
 
 ## Testing
 
-The project uses a dual testing approach:
+The project uses a dual testing approach with Jest and fast-check:
 
 **Property-Based Testing** with fast-check validates universal properties:
 - Aspect ratio preservation across arbitrary dimensions
@@ -136,6 +140,8 @@ The project uses a dual testing approach:
 - Chat message styling consistency
 - Effect order determinism
 - Tool registry integrity
+- Dynamic dock behavior
+- Slider component properties
 
 **Unit Testing** with Jest covers specific scenarios:
 - Chat interface rendering and interaction
@@ -155,12 +161,21 @@ npm test
 │   ├── api/chat/route.ts         # Groq API with show_tools tool
 │   ├── components/
 │   │   ├── ImageProcessor.tsx    # Main processor with effects pipeline
-│   │   ├── ChatInterface.tsx     # AI chat with tool call handling
 │   │   ├── LoadingIndicator.tsx  # Loading state component
+│   │   ├── MemoryStats.tsx       # Memory usage display
+│   │   ├── dock/
+│   │   │   ├── ActiveToolsPanel.tsx  # Active tools display
+│   │   │   ├── ChatHistory.tsx       # Chat message history
+│   │   │   ├── DynamicDock.tsx       # Main dock container
+│   │   │   ├── EffectsFAB.tsx        # Floating action button
+│   │   │   ├── GhostToast.tsx        # Toast notifications
+│   │   │   └── ToolBrowser.tsx       # Tool selection browser
 │   │   ├── overlay/
 │   │   │   └── ToolPanel.tsx     # Glassmorphism HUD panel
 │   │   └── ui/
 │   │       └── Slider.tsx        # Reusable slider component
+│   ├── contexts/
+│   │   └── ChatContext.tsx       # Chat state context
 │   ├── page.tsx                  # Home page with layered z-index layout
 │   └── layout.tsx                # Root layout
 ├── lib/
@@ -170,13 +185,16 @@ npm test
 │   ├── chat.ts                   # Chat utilities
 │   ├── types.ts                  # Types and tool state functions
 │   ├── tools-registry.ts         # Centralized tool definitions
+│   ├── tools-definitions.ts      # Effect order and executors
 │   ├── store.ts                  # Zustand global state
 │   ├── hooks.ts                  # Custom React hooks
+│   ├── memory-management.ts      # Memory optimization
+│   ├── css-preview.ts            # CSS preview utilities
 │   └── utils.ts                  # Utility functions
 ├── __tests__/
-│   ├── properties/               # Property-based tests (20+ test files)
-│   ├── ChatInterface.test.tsx    # Chat component tests
-│   └── chat.test.ts              # Chat utilities tests
+│   ├── properties/               # Property-based tests (25+ test files)
+│   ├── chat.test.ts              # Chat utilities tests
+│   └── tools-registry.test.ts    # Tool registry tests
 └── public/
     └── magick.wasm               # ImageMagick WebAssembly binary
 ```
@@ -187,13 +205,13 @@ npm test
 
 1. **User Request**: "Add a blur effect" or "Make it look vintage"
 2. **Tool Calling**: The AI invokes `show_tools` with appropriate parameters
-3. **HUD Panel**: Tool controls appear as sliders in the floating panel
+3. **Dynamic Dock**: Tool controls appear in the floating dock panel
 4. **Initial Values**: AI can set starting values based on intent
 5. **Real-Time Editing**: Adjust sliders to fine-tune the effect
 
 ### Image Processing Flow
 
-1. **Initialization**: ImageMagick WASM binary (~8MB) loads on first image upload
+1. **Initialization**: ImageMagick WASM binary loads on first image upload
 2. **Image Loading**: File is read as Uint8Array and processed for RGBA pixel data
 3. **Canvas Rendering**: Pixels render to canvas, scaled to fit 800×600px max
 4. **Effects Pipeline**: All active tools process through a unified pipeline in deterministic order
@@ -218,7 +236,7 @@ Effects are applied in a consistent order for predictable results:
 
 **Upload and Edit**:
 1. Upload a PNG, JPEG, GIF, or WebP image
-2. Ask: "Add a blur effect" → Blur slider appears in HUD
+2. Ask: "Add a blur effect" → Blur slider appears in dock
 3. Ask: "Make it sepia toned" → Sepia slider joins the panel
 4. Adjust sliders to fine-tune
 
@@ -263,14 +281,17 @@ Requires WebAssembly and SharedArrayBuffer support:
 
 ## Development Roadmap
 
-**Current Version: v0.4** - Generative UI with comprehensive tool suite
+**Current Version: v0.8**
 
 ### Completed Features
 - v0.1: ImageMagick WASM initialization and grayscale conversion
 - v0.2: Manual slider controls for blur adjustment
 - v0.3: AI-powered chat with real-time image state awareness
 - v0.4: Generative UI with 15 image processing tools
-
+- v0.5: Dynamic dock UI with tool browser
+- v0.6: Performance optimizations and memory management
+- v0.7: UI refinements and comprehensive test coverage
+- v0.8: Architecture Overhaul
 ### Planned Features
 - Image export functionality
 - Batch processing support

@@ -1,5 +1,6 @@
 'use client';
 
+import { useCallback } from 'react';
 import { X } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useShallow } from 'zustand/react/shallow';
@@ -29,21 +30,28 @@ const toolPanelVariants = {
  * Uses Zustand store for state management with shallow equality selector
  * to prevent unnecessary re-renders.
  * 
- * Requirements: 1.6, 1.7, slider-performance 3.2, 3.3, 5.1, 5.2, 5.3
+ * Requirements: 1.6, 1.7, 5.1, 5.2, 5.3
  */
 export default function ToolPanel({
   disabled = false,
 }: ToolPanelProps) {
   // Get state and actions from Zustand store with shallow equality
-  // This prevents re-renders when unrelated state changes
-  // (slider-performance Requirements: 3.2, 3.3)
-  const { activeTools, updateToolValue, removeTool } = useAppStore(
+  const { 
+    activeTools, 
+    updateToolValue,
+    removeTool,
+  } = useAppStore(
     useShallow((state) => ({
       activeTools: state.activeTools,
       updateToolValue: state.updateToolValue,
       removeTool: state.removeTool,
     }))
   );
+
+  // Handle slider change - directly updates tool value for WASM processing
+  const handleSliderChange = useCallback((toolId: string, value: number) => {
+    updateToolValue(toolId, value);
+  }, [updateToolValue]);
   
   // Use AnimatePresence to handle exit animations (Requirement 5.2)
   return (
@@ -70,7 +78,7 @@ export default function ToolPanel({
                     value={tool.value}
                     min={tool.min}
                     max={tool.max}
-                    onChange={(value) => updateToolValue(tool.id, value)}
+                    onChange={(value) => handleSliderChange(tool.id, value)}
                     disabled={disabled}
                   />
                 </div>

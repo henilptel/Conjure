@@ -32,9 +32,8 @@ function isClientError(error: unknown): { isClient: boolean; status: number; mes
     return { isClient: true, status: 400, message: 'Invalid JSON in request body' };
   }
   
-  // Check for TypeError that might indicate missing required fields
 
-  
+
   return { isClient: false, status: 500, message: 'Internal server error' };
 }
 
@@ -228,6 +227,11 @@ export async function POST(req: Request) {
                 };
               })
               .filter((config): config is NonNullable<typeof config> => config !== null);
+            
+            if (toolConfigs.length === 0) {
+              throw new Error('None of the requested tools are valid');
+            }
+            
             return { tools: toolConfigs };
           },
         }),

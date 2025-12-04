@@ -10,9 +10,265 @@ import {
 } from "@imagemagick/magick-wasm";
 import type { ActiveTool } from "./types";
 import { TOOL_REGISTRY, EFFECT_ORDER } from "./tools-registry";
+import {
+  validateImageDimensions,
+  MAX_PROCESSING_DIMENSION,
+  calculateRGBABufferSize,
+} from "./validation";
+import {
+  MemoryTracker,
+  IdleCleanupManager,
+  calculateDownscaledDimensions,
+  IDLE_CLEANUP_TIMEOUT_MS,
+  MemoryUsageInfo,
+  MEMORY_BUFFER_NAMES,
+} from "./memory-management";
 
 let isInitialized = false;
 let initializationPromise: Promise<void> | null = null;
+
+// ============================================================================
+// Worker Manager for Off-Thread Processing
+// ============================================================================
+
+/** Cached WASM bytes for worker initialization */
+let cachedWasmBytes: ArrayBuffer | null = null;
+
+/** Worker response types */
+interface WorkerProcessResponse {
+  type: 'process-complete';
+  requestId: number;
+  pixels: ArrayBuffer;
+  width: number;
+  height: number;
+}
+
+interface WorkerErrorResponse {
+  type: 'process-error' | 'init-error';
+  requestId?: number;
+  error: string;
+}
+
+type WorkerResponse = WorkerProcessResponse | WorkerErrorResponse | { type: 'init-complete' | 'ready' };
+
+/** Pending request with timeout tracking */
+interface PendingRequest {
+  resolve: (result: { pixels: Uint8Array; width: number; height: number }) => void;
+  reject: (error: Error) => void;
+  timeoutId: ReturnType<typeof setTimeout>;
+}
+
+/** Default timeout for worker requests in milliseconds */
+const DEFAULT_REQUEST_TIMEOUT_MS = 30000;
+
+/**
+ * Manager for Web Worker-based image processing.
+ * Handles worker lifecycle, initialization, and message passing.
+ */
+class WorkerManager {
+  private worker: Worker | null = null;
+  private isInitialized = false;
+  private initPromise: Promise<void> | null = null;
+  private requestId = 0;
+  private pendingRequests = new Map<number, PendingRequest>();
+  private requestTimeoutMs: number;
+
+  constructor(options?: { requestTimeoutMs?: number }) {
+    this.requestTimeoutMs = options?.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
+  }
+
+  /**
+   * Check if Web Workers are supported
+   */
+  static isSupported(): boolean {
+    return typeof Worker !== 'undefined';
+  }
+
+  /**
+   * Initialize the worker with WASM bytes
+   */
+  async initialize(): Promise<void> {
+    if (this.isInitialized) return;
+    if (this.initPromise) return this.initPromise;
+
+    this.initPromise = this._doInitialize();
+    return this.initPromise;
+  }
+
+  private async _doInitialize(): Promise<void> {
+    // Fetch WASM bytes if not cached
+    if (!cachedWasmBytes) {
+      const response = await fetch('/magick.wasm');
+      if (!response.ok) {
+        throw new Error(`Failed to fetch WASM: ${response.status}`);
+      }
+      cachedWasmBytes = await response.arrayBuffer();
+    }
+
+    // Create worker using URL constructor for Next.js compatibility
+    this.worker = new Worker(
+      new URL('./workers/magick.worker.ts', import.meta.url),
+      { type: 'module' }
+    );
+
+    // Set up message handler
+    this.worker.onmessage = (event: MessageEvent<WorkerResponse>) => {
+      this.handleMessage(event.data);
+    };
+
+    this.worker.onerror = (event) => {
+      console.error('Worker error:', event);
+      // Clear timeouts and reject all pending requests
+      for (const [, { reject, timeoutId }] of this.pendingRequests) {
+        clearTimeout(timeoutId);
+        reject(new Error('Worker error: ' + event.message));
+      }
+      this.pendingRequests.clear();
+    };
+
+    // Wait for worker to be ready, then send init
+    await new Promise<void>((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        reject(new Error('Worker initialization timeout'));
+      }, 10000);
+
+      const originalHandler = this.worker!.onmessage;
+      this.worker!.onmessage = (event: MessageEvent<WorkerResponse>) => {
+        if (event.data.type === 'ready') {
+          // Worker is ready, send init message
+          this.worker!.postMessage({
+            type: 'init',
+            wasmBytes: cachedWasmBytes,
+          }, [cachedWasmBytes!.slice(0)]); // Transfer a copy
+        } else if (event.data.type === 'init-complete') {
+          clearTimeout(timeout);
+          this.worker!.onmessage = originalHandler;
+          this.isInitialized = true;
+          resolve();
+        } else if (event.data.type === 'init-error') {
+          clearTimeout(timeout);
+          reject(new Error((event.data as WorkerErrorResponse).error));
+        }
+      };
+    });
+  }
+
+  private handleMessage(data: WorkerResponse): void {
+    if (data.type === 'process-complete') {
+      const pending = this.pendingRequests.get(data.requestId);
+      if (pending) {
+        // Cancel timeout on successful completion (Requirements: 1.5)
+        clearTimeout(pending.timeoutId);
+        this.pendingRequests.delete(data.requestId);
+        pending.resolve({
+          pixels: new Uint8Array(data.pixels),
+          width: data.width,
+          height: data.height,
+        });
+      }
+    } else if (data.type === 'process-error') {
+      const errorData = data as WorkerErrorResponse;
+      if (errorData.requestId !== undefined) {
+        const pending = this.pendingRequests.get(errorData.requestId);
+        if (pending) {
+          // Cancel timeout on error completion (Requirements: 1.6)
+          clearTimeout(pending.timeoutId);
+          this.pendingRequests.delete(errorData.requestId);
+          pending.reject(new Error(errorData.error));
+        }
+      }
+    }
+  }
+
+  /**
+   * Process image in the worker
+   */
+  async process(
+    sourceBytes: Uint8Array,
+    tools: ActiveTool[]
+  ): Promise<{ pixels: Uint8Array; width: number; height: number }> {
+    if (!this.isInitialized || !this.worker) {
+      throw new Error('Worker not initialized');
+    }
+
+    const requestId = ++this.requestId;
+    const bytesBuffer = sourceBytes.buffer.slice(
+      sourceBytes.byteOffset,
+      sourceBytes.byteOffset + sourceBytes.byteLength
+    );
+
+    return new Promise((resolve, reject) => {
+      // Set up timeout timer (Requirements: 1.1, 1.3, 1.4)
+      const timeoutId = setTimeout(() => {
+        const pending = this.pendingRequests.get(requestId);
+        if (pending) {
+          this.pendingRequests.delete(requestId);
+          reject(new Error(`Worker request ${requestId} timed out after ${this.requestTimeoutMs}ms`));
+        }
+      }, this.requestTimeoutMs);
+
+      this.pendingRequests.set(requestId, { resolve, reject, timeoutId });
+
+      // Send to worker with transferable
+      this.worker!.postMessage({
+        type: 'process',
+        requestId,
+        sourceBytes: bytesBuffer,
+        tools: tools.map(t => ({ id: t.id, value: t.value })),
+      }, [bytesBuffer]);
+    });
+  }
+
+  /**
+   * Terminate the worker
+   */
+  dispose(): void {
+    if (this.worker) {
+      this.worker.terminate();
+      this.worker = null;
+    }
+    this.isInitialized = false;
+    this.initPromise = null;
+    // Clear timeouts and reject all pending requests before clearing
+    for (const [, { reject, timeoutId }] of this.pendingRequests) {
+      clearTimeout(timeoutId);
+      reject(new Error('Worker disposed'));
+    }
+    this.pendingRequests.clear();
+  }
+
+  /**
+   * Check if worker is ready
+   */
+  isReady(): boolean {
+    return this.isInitialized && this.worker !== null;
+  }
+}
+
+/** Global worker manager instance */
+let globalWorkerManager: WorkerManager | null = null;
+
+/**
+ * Get or create the global worker manager
+ */
+export function getWorkerManager(): WorkerManager {
+  if (!globalWorkerManager) {
+    globalWorkerManager = new WorkerManager();
+  }
+  return globalWorkerManager;
+}
+
+/**
+ * Initialize the worker manager (call early to pre-warm)
+ */
+export async function initializeWorker(): Promise<void> {
+  if (!WorkerManager.isSupported()) {
+    console.warn('Web Workers not supported, falling back to main thread processing');
+    return;
+  }
+  const manager = getWorkerManager();
+  await manager.initialize();
+}
 
 /**
  * Initializes the Magick.WASM library
@@ -129,11 +385,17 @@ class AsyncMutex {
 }
 
 /**
- * ImageEngine class for optimized image processing.
+ * ImageEngine class for optimized image processing with memory management.
  *
  * This class maintains a reference to the decoded source image to avoid
  * redundant decoding operations during slider interactions. When processing,
  * it uses cached pixel data instead of re-decoding from compressed bytes.
+ *
+ * Memory Management:
+ * - Tracks memory usage across all buffers (sourceBytes, cachedPixels, etc.)
+ * - Supports downscaling large images for processing (configurable threshold)
+ * - Provides idle cleanup to release memory after inactivity
+ * - Stores original dimensions for export upscaling
  *
  * Thread Safety:
  * - Uses an AsyncMutex to protect shared state (sourceBytes, cachedPixels, etc.)
@@ -143,6 +405,8 @@ class AsyncMutex {
  * Performance Optimization (slider-performance spec):
  * - Caches decoded RGBA pixels after initial load
  * - process() uses cached pixels instead of re-decoding from bytes
+ * - Memoization: Returns cached result if activeTools haven't changed (dirty-check)
+ * - processInWorker(): Offloads WASM processing to Web Worker (non-blocking)
  * - Significantly reduces CPU usage during slider interactions
  *
  * Requirements: 3.1, 3.2, 3.3, slider-performance 2.1, 2.2, 2.3, 2.4
@@ -157,15 +421,238 @@ export class ImageEngine {
   /** Cached decoded RGBA pixel data - avoids re-decoding on every process() */
   private cachedPixels: Uint8Array | null = null;
   
-  /** Cached image width */
+  /** Cached image width (may be downscaled for processing) */
   private cachedWidth: number = 0;
   
-  /** Cached image height */
+  /** Cached image height (may be downscaled for processing) */
   private cachedHeight: number = 0;
+  
+  /** Original image width (before any downscaling) */
+  private originalWidth: number = 0;
+  
+  /** Original image height (before any downscaling) */
+  private originalHeight: number = 0;
+  
+  /** Scale factor applied during load (1.0 = no downscaling) */
+  private loadScale: number = 1.0;
+  
+  /** Last processed tools signature for memoization */
+  private lastToolsSignature: string = '';
+  
+  /** Cached processed result for memoization */
+  private lastProcessedResult: ImageData | null = null;
+
+  /** Worker manager instance for off-thread processing */
+  private workerManager: WorkerManager | null = null;
+  
+  /** Whether to prefer worker-based processing */
+  private useWorker: boolean = false;
+  
+  /** Memory usage tracker */
+  private memoryTracker = new MemoryTracker();
+  
+  /** Idle cleanup manager for memory optimization */
+  private idleCleanupManager: IdleCleanupManager;
+  
+  /** Whether automatic downscaling is enabled */
+  private autoDownscale: boolean = true;
+  
+  /** Maximum dimension for processing (configurable) */
+  private maxProcessingDimension: number = MAX_PROCESSING_DIMENSION;
+
+  constructor(options?: {
+    autoDownscale?: boolean;
+    maxProcessingDimension?: number;
+    idleCleanupTimeoutMs?: number;
+  }) {
+    this.autoDownscale = options?.autoDownscale ?? true;
+    this.maxProcessingDimension = options?.maxProcessingDimension ?? MAX_PROCESSING_DIMENSION;
+    this.idleCleanupManager = new IdleCleanupManager(
+      options?.idleCleanupTimeoutMs ?? IDLE_CLEANUP_TIMEOUT_MS
+    );
+    
+    // Set up idle cleanup to clear memoization cache
+    this.idleCleanupManager.setCleanupCallback(() => {
+      this.clearMemoizationCache();
+    });
+  }
+
+  /**
+   * Computes a signature string for an array of ActiveTools for memoization.
+   * Tools are sorted by id and serialized to ensure consistent comparison.
+   */
+  private computeToolsSignature(tools: ActiveTool[]): string {
+    if (tools.length === 0) return '';
+    // Sort by id for consistent ordering, then serialize id:value pairs
+    return [...tools]
+      .sort((a, b) => a.id.localeCompare(b.id))
+      .map(t => `${t.id}:${t.value}`)
+      .join('|');
+  }
+  
+  /**
+   * Updates memory tracking for current buffers
+   */
+  private updateMemoryTracking(): void {
+    if (this.sourceBytes) {
+      this.memoryTracker.record(MEMORY_BUFFER_NAMES.SOURCE_BYTES, this.sourceBytes.byteLength);
+    } else {
+      this.memoryTracker.clear(MEMORY_BUFFER_NAMES.SOURCE_BYTES);
+    }
+    
+    if (this.cachedPixels) {
+      this.memoryTracker.record(MEMORY_BUFFER_NAMES.CACHED_PIXELS, this.cachedPixels.byteLength);
+    } else {
+      this.memoryTracker.clear(MEMORY_BUFFER_NAMES.CACHED_PIXELS);
+    }
+    
+    if (this.lastProcessedResult) {
+      this.memoryTracker.record(MEMORY_BUFFER_NAMES.PROCESSED_RESULT, this.lastProcessedResult.pixels.byteLength);
+    } else {
+      this.memoryTracker.clear(MEMORY_BUFFER_NAMES.PROCESSED_RESULT);
+    }
+  }
+  
+  /**
+   * Clears the memoization cache to free memory.
+   * Called by idle cleanup or manually when memory pressure is high.
+   */
+  clearMemoizationCache(): void {
+    this.lastToolsSignature = '';
+    this.lastProcessedResult = null;
+    this.memoryTracker.clear(MEMORY_BUFFER_NAMES.PROCESSED_RESULT);
+  }
+  
+  /**
+   * Sets the canvas render cache size for memory tracking.
+   * Should be called by the component that owns the canvas render cache.
+   * @param sizeBytes - Size of the canvas render cache in bytes (0 if empty)
+   */
+  setCanvasRenderCacheSize(sizeBytes: number): void {
+    if (sizeBytes > 0) {
+      this.memoryTracker.record(MEMORY_BUFFER_NAMES.CANVAS_RENDER_CACHE, sizeBytes);
+    } else {
+      this.memoryTracker.clear(MEMORY_BUFFER_NAMES.CANVAS_RENDER_CACHE);
+    }
+  }
+  
+  /**
+   * Gets current memory usage information (simple version)
+   */
+  getMemoryUsage(): { totalBytes: number; budgetPercent: number } {
+    this.updateMemoryTracking();
+    const info = this.memoryTracker.getUsageInfo();
+    return {
+      totalBytes: info.totalSize,
+      budgetPercent: info.budgetUsagePercent,
+    };
+  }
+  
+  /**
+   * Gets detailed memory usage info for diagnostics panel
+   */
+  getDetailedMemoryUsage(): MemoryUsageInfo {
+    this.updateMemoryTracking();
+    return this.memoryTracker.getUsageInfo();
+  }
+  
+  /**
+   * Gets comprehensive stats for the "Stats for Nerds" panel
+   */
+  getFullStats(): {
+    memory: MemoryUsageInfo;
+    image: {
+      originalWidth: number;
+      originalHeight: number;
+      processingWidth: number;
+      processingHeight: number;
+      wasDownscaled: boolean;
+      loadScale: number;
+    } | null;
+    isWorkerActive: boolean;
+  } {
+    this.updateMemoryTracking();
+    
+    const hasImage = this.cachedPixels !== null;
+    
+    return {
+      memory: this.memoryTracker.getUsageInfo(),
+      image: hasImage ? {
+        originalWidth: this.originalWidth,
+        originalHeight: this.originalHeight,
+        processingWidth: this.cachedWidth,
+        processingHeight: this.cachedHeight,
+        wasDownscaled: this.loadScale < 1.0,
+        loadScale: this.loadScale,
+      } : null,
+      isWorkerActive: this.isWorkerReady(),
+    };
+  }
+  
+  /**
+   * Gets original (pre-downscaling) dimensions
+   */
+  getOriginalDimensions(): { width: number; height: number } | null {
+    if (this.originalWidth === 0 || this.originalHeight === 0) return null;
+    return { width: this.originalWidth, height: this.originalHeight };
+  }
+  
+  /**
+   * Gets the scale factor applied during image load
+   */
+  getLoadScale(): number {
+    return this.loadScale;
+  }
+  
+  /**
+   * Checks if the image was downscaled during load
+   */
+  wasDownscaled(): boolean {
+    return this.loadScale < 1.0;
+  }
+  
+  /**
+   * Resets the idle timer (call on user activity to delay cleanup)
+   */
+  resetIdleTimer(): void {
+    this.idleCleanupManager.resetTimer();
+  }
+
+  /**
+   * Enables or disables worker-based processing.
+   * When enabled, processInWorker() will use a Web Worker for WASM operations.
+   * 
+   * @param enabled - Whether to use worker-based processing
+   */
+  setUseWorker(enabled: boolean): void {
+    this.useWorker = enabled && WorkerManager.isSupported();
+  }
+
+  /**
+   * Initializes the worker manager for off-thread processing.
+   * Call this early (e.g., during image load) to pre-warm the worker.
+   */
+  async initializeWorker(): Promise<void> {
+    if (!WorkerManager.isSupported()) return;
+    
+    if (!this.workerManager) {
+      this.workerManager = getWorkerManager();
+    }
+    await this.workerManager.initialize();
+    this.useWorker = true;
+  }
+
+  /**
+   * Checks if worker-based processing is available and initialized.
+   */
+  isWorkerReady(): boolean {
+    return this.useWorker && this.workerManager?.isReady() === true;
+  }
 
   /**
    * Loads an image from bytes, decodes once, and caches the pixel data.
-   * This method should be called once when an image is uploaded.
+   * If the image exceeds the processing dimension limit, it will be downscaled.
+   * Original dimensions are preserved for export upscaling.
    * 
    * Thread-safe: Acquires mutex before accessing shared state.
    * Lock is released after ImageMagick.read callback completes.
@@ -184,53 +671,100 @@ export class ImageEngine {
     await this.mutex.acquire();
 
     // Clear any existing data (Requirements: slider-performance 2.3)
-    // Note: Using internal clear instead of dispose() to avoid re-acquiring lock
-    this.sourceBytes = null;
-    this.cachedPixels = null;
-    this.cachedWidth = 0;
-    this.cachedHeight = 0;
+    this.clearState();
 
     // Store the original bytes
     this.sourceBytes = new Uint8Array(bytes);
+    this.memoryTracker.record(MEMORY_BUFFER_NAMES.SOURCE_BYTES, this.sourceBytes.byteLength);
 
     return new Promise<ImageData>((resolve, reject) => {
+      let released = false;
+      
+      const releaseMutex = () => {
+        if (!released) {
+          released = true;
+          this.mutex.release();
+        }
+      };
+      
+      const handleError = (error: unknown, context: string) => {
+        // Clear state on error
+        this.clearState();
+        
+        releaseMutex();
+        
+        console.error(`ImageEngine.loadImage error (${context}):`, error);
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+        reject(new Error(`Failed to load image (${context}): ${errorMessage}`));
+      };
+      
       try {
         // Read the image to get dimensions and pixel data
         ImageMagick.read(this.sourceBytes!, (image) => {
-          const width = image.width;
-          const height = image.height;
+          try {
+            // Store original dimensions
+            this.originalWidth = image.width;
+            this.originalHeight = image.height;
+            
+            // Validate dimensions
+            const dimensionValidation = validateImageDimensions(image.width, image.height);
+            if (!dimensionValidation.isValid) {
+              handleError(new Error(dimensionValidation.error), 'dimension validation');
+              return;
+            }
+            
+            // Check if downscaling is needed
+            let targetWidth = image.width;
+            let targetHeight = image.height;
+            this.loadScale = 1.0;
+            
+            if (this.autoDownscale && dimensionValidation.needsDownscaling) {
+              const scaled = calculateDownscaledDimensions(
+                image.width,
+                image.height,
+                this.maxProcessingDimension
+              );
+              targetWidth = scaled.width;
+              targetHeight = scaled.height;
+              this.loadScale = scaled.scale;
+              
+              // Resize the image for processing
+              image.resize(targetWidth, targetHeight);
+            }
 
-          // Write to RGBA format for canvas and cache
-          image.write(MagickFormat.Rgba, (pixels) => {
-            // Cache the decoded pixels (Requirements: slider-performance 2.1)
-            this.cachedPixels = new Uint8Array(pixels);
-            this.cachedWidth = width;
-            this.cachedHeight = height;
-            
-            // Release lock after callback completes
-            this.mutex.release();
-            
-            resolve({
-              pixels: new Uint8Array(pixels),
-              width,
-              height,
-              originalBytes: this.sourceBytes!,
+            // Write to RGBA format for canvas and cache
+            image.write(MagickFormat.Rgba, (pixels) => {
+              try {
+                // Cache the decoded pixels (Requirements: slider-performance 2.1)
+                this.cachedPixels = new Uint8Array(pixels);
+                this.cachedWidth = targetWidth;
+                this.cachedHeight = targetHeight;
+                
+                // Update memory tracking
+                this.memoryTracker.record(MEMORY_BUFFER_NAMES.CACHED_PIXELS, this.cachedPixels.byteLength);
+                
+                // Start idle cleanup timer
+                this.idleCleanupManager.resetTimer();
+                
+                // Release lock after callback completes
+                releaseMutex();
+                
+                resolve({
+                  pixels: new Uint8Array(pixels),
+                  width: targetWidth,
+                  height: targetHeight,
+                  originalBytes: this.sourceBytes!,
+                });
+              } catch (writeCallbackError) {
+                handleError(writeCallbackError, 'write callback');
+              }
             });
-          });
+          } catch (readCallbackError) {
+            handleError(readCallbackError, 'read callback');
+          }
         });
       } catch (error) {
-        // Clear state on error
-        this.sourceBytes = null;
-        this.cachedPixels = null;
-        this.cachedWidth = 0;
-        this.cachedHeight = 0;
-        
-        // Release lock on error
-        this.mutex.release();
-        
-        console.error('ImageEngine.loadImage error:', error);
-        const errorMessage = error instanceof Error ? error.message : 'Failed to load image';
-        reject(new Error(`Failed to load image: ${errorMessage}`));
+        handleError(error, 'ImageMagick.read');
       }
     });
   }
@@ -239,6 +773,9 @@ export class ImageEngine {
    * Processes the image with the given active tools.
    * Uses cached pixel data when no effects need to be applied,
    * otherwise re-reads from bytes to apply effects (ImageMagick requires this).
+   * 
+   * Memoization: Returns cached result if activeTools signature matches
+   * the last processed tools (dirty-check optimization).
    * 
    * Thread-safe: Acquires mutex before accessing shared state.
    * Lock is released after ImageMagick.read callback completes.
@@ -260,15 +797,25 @@ export class ImageEngine {
       this.mutex.release();
       throw new Error('No image loaded. Call loadImage first.');
     }
+    
+    // Reset idle timer on activity
+    this.idleCleanupManager.resetTimer();
 
     // Capture references to shared state while holding lock
     const sourceBytes = this.sourceBytes;
     const cachedPixels = this.cachedPixels;
     const cachedWidth = this.cachedWidth;
     const cachedHeight = this.cachedHeight;
+    const loadScale = this.loadScale;
+    const maxDim = this.maxProcessingDimension;
 
     // If no tools, return cached pixels directly (fast path)
     if (activeTools.length === 0) {
+      // Clear memoization cache for empty tools case
+      this.lastToolsSignature = '';
+      this.lastProcessedResult = null;
+      this.memoryTracker.clear(MEMORY_BUFFER_NAMES.PROCESSED_RESULT);
+      
       this.mutex.release();
       return {
         pixels: new Uint8Array(cachedPixels),
@@ -278,52 +825,191 @@ export class ImageEngine {
       };
     }
 
+    // Dirty-check: Compare tools signature with last processed
+    const currentSignature = this.computeToolsSignature(activeTools);
+    if (currentSignature === this.lastToolsSignature && this.lastProcessedResult) {
+      // Return cached result (copy pixels to avoid mutation issues)
+      const cachedResult = this.lastProcessedResult;
+      this.mutex.release();
+      return {
+        pixels: new Uint8Array(cachedResult.pixels),
+        width: cachedResult.width,
+        height: cachedResult.height,
+        originalBytes: cachedResult.originalBytes,
+      };
+    }
+
     // For effects, we need to use ImageMagick - read from bytes
     // Note: ImageMagick WASM doesn't support reading from raw RGBA pixels,
     // so we must read from the compressed bytes for effect application
     return new Promise<ImageData>((resolve, reject) => {
+      let released = false;
+      
+      const releaseMutex = () => {
+        if (!released) {
+          released = true;
+          this.mutex.release();
+        }
+      };
+      
+      const handleError = (error: unknown, context: string) => {
+        releaseMutex();
+        
+        console.error(`ImageEngine.process error (${context}):`, error);
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+        reject(new Error(`Failed to process image (${context}): ${errorMessage}`));
+      };
+      
       try {
         ImageMagick.read(sourceBytes, (image) => {
-          // Sort tools by EFFECT_ORDER for consistent application
-          const sortedTools = [...activeTools].sort((a, b) => {
-            const aIndex = EFFECT_ORDER.indexOf(a.id);
-            const bIndex = EFFECT_ORDER.indexOf(b.id);
-            // Unknown tools go to the end
-            return (aIndex === -1 ? Infinity : aIndex) - (bIndex === -1 ? Infinity : bIndex);
-          });
-
-          // Apply effects from registry
-          for (const tool of sortedTools) {
-            const toolDef = TOOL_REGISTRY[tool.id];
-            if (toolDef) {
-              toolDef.execute(image, tool.value);
-            } else {
-              console.warn(`Unknown tool "${tool.id}" skipped during processing`);
+          try {
+            // Apply downscaling if needed (same as during load)
+            if (loadScale < 1.0) {
+              const scaled = calculateDownscaledDimensions(
+                image.width,
+                image.height,
+                maxDim
+              );
+              image.resize(scaled.width, scaled.height);
             }
-          }
-
-          // Write to RGBA for canvas rendering
-          image.write(MagickFormat.Rgba, (pixels) => {
-            // Release lock after callback completes
-            this.mutex.release();
             
-            resolve({
-              pixels: new Uint8Array(pixels),
-              width: image.width,
-              height: image.height,
-              originalBytes: sourceBytes,
+            // Sort tools by EFFECT_ORDER for consistent application
+            const sortedTools = [...activeTools].sort((a, b) => {
+              const aIndex = EFFECT_ORDER.indexOf(a.id);
+              const bIndex = EFFECT_ORDER.indexOf(b.id);
+              // Unknown tools go to the end
+              return (aIndex === -1 ? Infinity : aIndex) - (bIndex === -1 ? Infinity : bIndex);
             });
-          });
+
+            // Apply effects from registry
+            for (const tool of sortedTools) {
+              const toolDef = TOOL_REGISTRY[tool.id];
+              if (toolDef) {
+                toolDef.execute(image, tool.value);
+              } else {
+                console.warn(`Unknown tool "${tool.id}" skipped during processing`);
+              }
+            }
+
+            // Write to RGBA for canvas rendering
+            image.write(MagickFormat.Rgba, (pixels) => {
+              try {
+                const result: ImageData = {
+                  pixels: new Uint8Array(pixels),
+                  width: image.width,
+                  height: image.height,
+                  originalBytes: sourceBytes,
+                };
+                
+                // Cache the result for memoization
+                this.lastToolsSignature = currentSignature;
+                this.lastProcessedResult = {
+                  pixels: new Uint8Array(pixels), // Store a copy
+                  width: image.width,
+                  height: image.height,
+                  originalBytes: sourceBytes,
+                };
+                
+                // Update memory tracking
+                this.memoryTracker.record('processedResult', this.lastProcessedResult.pixels.byteLength);
+                
+                // Release lock after callback completes
+                releaseMutex();
+                
+                resolve(result);
+              } catch (writeCallbackError) {
+                handleError(writeCallbackError, 'write callback');
+              }
+            });
+          } catch (readCallbackError) {
+            handleError(readCallbackError, 'read callback');
+          }
         });
       } catch (error) {
-        // Release lock on error
-        this.mutex.release();
-        
-        console.error('ImageEngine.process error:', error);
-        const errorMessage = error instanceof Error ? error.message : 'Failed to process image';
-        reject(new Error(`Failed to process image: ${errorMessage}`));
+        handleError(error, 'ImageMagick.read');
       }
     });
+  }
+
+  /**
+   * Processes the image with the given active tools using a Web Worker.
+   * This offloads WASM processing to a separate thread, preventing UI blocking.
+   * 
+   * Falls back to main-thread process() if worker is not available.
+   * 
+   * Unlike process(), this method does NOT use memoization since it's designed
+   * for final processing after user interaction completes (not during drag).
+   *
+   * @param activeTools - Array of ActiveTool objects specifying effects to apply
+   * @returns Promise<ImageData> with processed pixel data
+   */
+  async processInWorker(activeTools: ActiveTool[]): Promise<ImageData> {
+    // Fall back to main thread if worker not ready
+    if (!this.isWorkerReady() || !this.workerManager) {
+      return this.process(activeTools);
+    }
+
+    if (!isInitialized) {
+      throw new Error('Magick.WASM is not initialized');
+    }
+
+    // Acquire lock to safely access sourceBytes
+    await this.mutex.acquire();
+
+    if (!this.sourceBytes) {
+      this.mutex.release();
+      throw new Error('No image loaded. Call loadImage first.');
+    }
+    
+    // Reset idle timer on activity
+    this.idleCleanupManager.resetTimer();
+
+    const sourceBytes = this.sourceBytes;
+    const cachedPixels = this.cachedPixels;
+    const cachedWidth = this.cachedWidth;
+    const cachedHeight = this.cachedHeight;
+
+    // Release lock before worker processing (worker has its own copy)
+    this.mutex.release();
+
+    // If no tools, return cached pixels directly (fast path)
+    if (activeTools.length === 0 && cachedPixels) {
+      return {
+        pixels: new Uint8Array(cachedPixels),
+        width: cachedWidth,
+        height: cachedHeight,
+        originalBytes: sourceBytes,
+      };
+    }
+
+    try {
+      // Process in worker (non-blocking)
+      const result = await this.workerManager.process(sourceBytes, activeTools);
+
+      // Update memoization cache with worker result
+      const currentSignature = this.computeToolsSignature(activeTools);
+      this.lastToolsSignature = currentSignature;
+      this.lastProcessedResult = {
+        pixels: new Uint8Array(result.pixels),
+        width: result.width,
+        height: result.height,
+        originalBytes: sourceBytes,
+      };
+      
+      // Update memory tracking
+      this.memoryTracker.record('processedResult', this.lastProcessedResult.pixels.byteLength);
+
+      return {
+        pixels: result.pixels,
+        width: result.width,
+        height: result.height,
+        originalBytes: sourceBytes,
+      };
+    } catch (error) {
+      // On worker error, fall back to main thread
+      console.warn('Worker processing failed, falling back to main thread:', error);
+      return this.process(activeTools);
+    }
   }
 
   /**
@@ -331,35 +1017,43 @@ export class ImageEngine {
    * Should be called when the image is no longer needed or before loading a new image.
    * 
    * Thread-safe: Waits for any in-progress operations to complete before clearing state.
-   * This is an async method to ensure proper synchronization.
+   * This is the only public method for cleanup - use this instead of any synchronous variant.
    * 
    * Requirements: 3.3, slider-performance 2.4
    */
   async disposeAsync(): Promise<void> {
+    // Cancel any pending idle cleanup
+    this.idleCleanupManager.dispose();
+    
     // Acquire lock to ensure no operations are in progress
     await this.mutex.acquire();
     try {
-      this.sourceBytes = null;
-      this.cachedPixels = null;
-      this.cachedWidth = 0;
-      this.cachedHeight = 0;
+      this.clearState();
     } finally {
       this.mutex.release();
     }
   }
 
   /**
-   * Synchronous dispose - clears state immediately without waiting for lock.
-   * Use with caution: only safe when you know no operations are in progress.
-   * Prefer disposeAsync() for thread-safe cleanup.
+   * Internal synchronous dispose - clears state immediately without waiting for lock.
+   * Private: Only used internally (e.g., in loadImage when clearing previous state while holding lock).
+   * External callers must use disposeAsync() for thread-safe cleanup.
    * 
    * Requirements: 3.3, slider-performance 2.4
    */
-  dispose(): void {
+  private clearState(): void {
     this.sourceBytes = null;
     this.cachedPixels = null;
     this.cachedWidth = 0;
     this.cachedHeight = 0;
+    this.originalWidth = 0;
+    this.originalHeight = 0;
+    this.loadScale = 1.0;
+    // Clear memoization cache
+    this.lastToolsSignature = '';
+    this.lastProcessedResult = null;
+    // Clear memory tracking
+    this.memoryTracker.clearAll();
   }
 
   /**
