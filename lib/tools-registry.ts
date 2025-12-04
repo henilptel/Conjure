@@ -5,15 +5,31 @@
  * Adding new tools requires only adding an entry to TOOL_REGISTRY without modifying
  * the processing pipeline.
  * 
- * Requirements: 2.1, 2.2
+ * Requirements: 2.1, 2.2, 4.1
  */
 
 import type { IMagickImage } from '@imagemagick/magick-wasm';
+import type { LucideIcon } from 'lucide-react';
+import {
+  Droplets,
+  Palette,
+  Image,
+  Contrast,
+  Lightbulb,
+  Paintbrush,
+  Sun,
+  CircleDot,
+  Zap,
+  Sparkles,
+  Focus,
+  RotateCw,
+  Waves,
+} from 'lucide-react';
 import { EFFECT_ORDER, TOOL_EXECUTORS } from './tools-definitions';
 
 /**
  * Definition for a single tool in the registry.
- * Each tool has metadata (id, label, min, max, defaultValue) and an execute function
+ * Each tool has metadata (id, label, min, max, defaultValue, icon) and an execute function
  * that applies the effect to an IMagickImage in-place.
  */
 export interface ToolDefinition {
@@ -33,6 +49,8 @@ export interface ToolDefinition {
    * @param value - The effect intensity/value
    */
   execute: (image: IMagickImage, value: number) => void;
+  /** Lucide icon component for UI display */
+  icon: LucideIcon;
 }
 
 /**
@@ -59,6 +77,7 @@ export const TOOL_REGISTRY: Record<string, ToolDefinition> = {
     max: 20,
     defaultValue: 0,
     execute: TOOL_EXECUTORS.blur,
+    icon: Droplets,
   },
 
   grayscale: {
@@ -68,6 +87,7 @@ export const TOOL_REGISTRY: Record<string, ToolDefinition> = {
     max: 100,
     defaultValue: 0,
     execute: TOOL_EXECUTORS.grayscale,
+    icon: Palette,
   },
 
   sepia: {
@@ -77,6 +97,7 @@ export const TOOL_REGISTRY: Record<string, ToolDefinition> = {
     max: 100,
     defaultValue: 0,
     execute: TOOL_EXECUTORS.sepia,
+    icon: Image,
   },
 
   contrast: {
@@ -86,6 +107,7 @@ export const TOOL_REGISTRY: Record<string, ToolDefinition> = {
     max: 100,
     defaultValue: 0,
     execute: TOOL_EXECUTORS.contrast,
+    icon: Contrast,
   },
 
   // Category A: Color & Light Tools
@@ -96,6 +118,7 @@ export const TOOL_REGISTRY: Record<string, ToolDefinition> = {
     max: 200,
     defaultValue: 100,
     execute: TOOL_EXECUTORS.brightness,
+    icon: Lightbulb,
   },
 
   saturation: {
@@ -105,6 +128,7 @@ export const TOOL_REGISTRY: Record<string, ToolDefinition> = {
     max: 300,
     defaultValue: 100,
     execute: TOOL_EXECUTORS.saturation,
+    icon: Paintbrush,
   },
 
   hue: {
@@ -114,6 +138,7 @@ export const TOOL_REGISTRY: Record<string, ToolDefinition> = {
     max: 200,
     defaultValue: 100,
     execute: TOOL_EXECUTORS.hue,
+    icon: Sun,
   },
 
   invert: {
@@ -123,6 +148,7 @@ export const TOOL_REGISTRY: Record<string, ToolDefinition> = {
     max: 1,
     defaultValue: 0,
     execute: TOOL_EXECUTORS.invert,
+    icon: CircleDot,
   },
 
   // Category B: Detail & Texture Tools
@@ -133,6 +159,7 @@ export const TOOL_REGISTRY: Record<string, ToolDefinition> = {
     max: 10,
     defaultValue: 0,
     execute: TOOL_EXECUTORS.sharpen,
+    icon: Zap,
   },
 
   charcoal: {
@@ -142,6 +169,7 @@ export const TOOL_REGISTRY: Record<string, ToolDefinition> = {
     max: 10,
     defaultValue: 0,
     execute: TOOL_EXECUTORS.charcoal,
+    icon: Sparkles,
   },
 
   edge_detect: {
@@ -151,6 +179,7 @@ export const TOOL_REGISTRY: Record<string, ToolDefinition> = {
     max: 10,
     defaultValue: 0,
     execute: TOOL_EXECUTORS.edge_detect,
+    icon: Focus,
   },
 
   // Category C: Geometry & Distortion Tools
@@ -161,6 +190,7 @@ export const TOOL_REGISTRY: Record<string, ToolDefinition> = {
     max: 180,
     defaultValue: 0,
     execute: TOOL_EXECUTORS.rotate,
+    icon: RotateCw,
   },
 
   wave: {
@@ -170,6 +200,7 @@ export const TOOL_REGISTRY: Record<string, ToolDefinition> = {
     max: 100,
     defaultValue: 0,
     execute: TOOL_EXECUTORS.wave,
+    icon: Waves,
   },
 
   // Category D: Artistic Tools
@@ -180,6 +211,7 @@ export const TOOL_REGISTRY: Record<string, ToolDefinition> = {
     max: 100,
     defaultValue: 0,
     execute: TOOL_EXECUTORS.solarize,
+    icon: Sun,
   },
 
   vignette: {
@@ -189,6 +221,7 @@ export const TOOL_REGISTRY: Record<string, ToolDefinition> = {
     max: 100,
     defaultValue: 0,
     execute: TOOL_EXECUTORS.vignette,
+    icon: CircleDot,
   },
 };
 
@@ -234,4 +267,18 @@ export function isRegisteredTool(toolId: string): boolean {
  */
 export function getAllToolDefinitions(): ToolDefinition[] {
   return Object.values(TOOL_REGISTRY);
+}
+
+/**
+ * Gets the icon for a given tool ID.
+ * Returns undefined if the tool is not found in the registry.
+ * 
+ * @param toolId - The ID of the tool to look up
+ * @returns The LucideIcon component or undefined if not found
+ * 
+ * Requirements: 4.2
+ */
+export function getToolIcon(toolId: string): LucideIcon | undefined {
+  const tool = getToolConfig(toolId);
+  return tool?.icon;
 }

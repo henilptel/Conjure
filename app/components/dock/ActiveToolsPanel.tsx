@@ -7,49 +7,12 @@ import {
   ChevronDown,
   X,
   Layers,
-  Droplets,
-  Palette,
-  Sun,
-  Lightbulb,
-  Paintbrush,
-  Image,
-  RotateCw,
-  Waves,
   Sparkles,
-  Contrast,
-  CircleDot,
-  Zap,
-  Focus,
   type LucideIcon,
 } from 'lucide-react';
 import { useAppStore } from '@/lib/store';
-import { getToolConfig } from '@/lib/tools-registry';
+import { getToolConfig, getToolIcon } from '@/lib/tools-registry';
 import Slider from '@/app/components/ui/Slider';
-
-// ============================================================================
-// Types & Constants
-// ============================================================================
-
-/**
- * Tool icon mapping - maps tool IDs to their icons
- */
-const TOOL_ICONS: Record<string, LucideIcon> = {
-  blur: Droplets,
-  grayscale: Palette,
-  contrast: Contrast,
-  brightness: Lightbulb,
-  saturation: Paintbrush,
-  sepia: Image,
-  hue: Sun,
-  invert: CircleDot,
-  sharpen: Zap,
-  charcoal: Sparkles,
-  edge_detect: Focus,
-  rotate: RotateCw,
-  wave: Waves,
-  solarize: Sun,
-  vignette: CircleDot,
-};
 
 /**
  * Tool categories for grouping
@@ -91,7 +54,7 @@ export interface ActiveToolsPanelProps {
  * - Remove button for each tool
  * - Grouped by category when expanded
  */
-export default function ActiveToolsPanel({ disabled = false, onToolSelect }: ActiveToolsPanelProps) {
+function ActiveToolsPanelComponent({ disabled = false, onToolSelect }: ActiveToolsPanelProps) {
   const activeTools = useAppStore((state) => state.activeTools);
   const updateToolValue = useAppStore((state) => state.updateToolValue);
   const removeTool = useAppStore((state) => state.removeTool);
@@ -192,7 +155,7 @@ export default function ActiveToolsPanel({ disabled = false, onToolSelect }: Act
                     <ToolItem
                       key={tool.id}
                       tool={tool}
-                      icon={TOOL_ICONS[tool.id] || Sparkles}
+                      icon={getToolIcon(tool.id) || Sparkles}
                       isExpanded={expandedToolId === tool.id}
                       disabled={disabled}
                       onClick={() => handleToolClick(tool.id)}
@@ -211,7 +174,7 @@ export default function ActiveToolsPanel({ disabled = false, onToolSelect }: Act
                     <ToolItem
                       key={tool.id}
                       tool={tool}
-                      icon={TOOL_ICONS[tool.id] || Sparkles}
+                      icon={getToolIcon(tool.id) || Sparkles}
                       isExpanded={expandedToolId === tool.id}
                       disabled={disabled}
                       onClick={() => handleToolClick(tool.id)}
@@ -228,6 +191,9 @@ export default function ActiveToolsPanel({ disabled = false, onToolSelect }: Act
     </motion.div>
   );
 }
+
+// Export memoized version to prevent re-renders when props are unchanged
+export default memo(ActiveToolsPanelComponent);
 
 
 // ============================================================================

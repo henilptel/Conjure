@@ -51,6 +51,16 @@ interface WorkerErrorResponse {
 
 type WorkerResponse = WorkerProcessResponse | WorkerErrorResponse | { type: 'init-complete' | 'ready' };
 
+/** Pending request with timeout tracking */
+interface PendingRequest {
+  resolve: (result: { pixels: Uint8Array; width: number; height: number }) => void;
+  reject: (error: Error) => void;
+  timeoutId: ReturnType<typeof setTimeout>;
+}
+
+/** Default timeout for worker requests in milliseconds */
+const DEFAULT_REQUEST_TIMEOUT_MS = 30000;
+
 /**
  * Manager for Web Worker-based image processing.
  * Handles worker lifecycle, initialization, and message passing.
@@ -60,10 +70,12 @@ class WorkerManager {
   private isInitialized = false;
   private initPromise: Promise<void> | null = null;
   private requestId = 0;
-  private pendingRequests = new Map<number, {
-    resolve: (result: { pixels: Uint8Array; width: number; height: number }) => void;
-    reject: (error: Error) => void;
-  }>();
+  private pendingRequests = new Map<number, PendingRequest>();
+  private requestTimeoutMs: number;
+
+  constructor(options?: { requestTimeoutMs?: number }) {
+    this.requestTimeoutMs = options?.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
+  }
 
   /**
    * Check if Web Workers are supported
@@ -106,8 +118,9 @@ class WorkerManager {
 
     this.worker.onerror = (event) => {
       console.error('Worker error:', event);
-      // Reject all pending requests
-      for (const [, { reject }] of this.pendingRequests) {
+      // Clear timeouts and reject all pending requests
+      for (const [, { reject, timeoutId }] of this.pendingRequests) {
+        clearTimeout(timeoutId);
         reject(new Error('Worker error: ' + event.message));
       }
       this.pendingRequests.clear();
@@ -144,6 +157,8 @@ class WorkerManager {
     if (data.type === 'process-complete') {
       const pending = this.pendingRequests.get(data.requestId);
       if (pending) {
+        // Cancel timeout on successful completion (Requirements: 1.5)
+        clearTimeout(pending.timeoutId);
         this.pendingRequests.delete(data.requestId);
         pending.resolve({
           pixels: new Uint8Array(data.pixels),
@@ -156,6 +171,8 @@ class WorkerManager {
       if (errorData.requestId !== undefined) {
         const pending = this.pendingRequests.get(errorData.requestId);
         if (pending) {
+          // Cancel timeout on error completion (Requirements: 1.6)
+          clearTimeout(pending.timeoutId);
           this.pendingRequests.delete(errorData.requestId);
           pending.reject(new Error(errorData.error));
         }
@@ -181,7 +198,16 @@ class WorkerManager {
     );
 
     return new Promise((resolve, reject) => {
-      this.pendingRequests.set(requestId, { resolve, reject });
+      // Set up timeout timer (Requirements: 1.1, 1.3, 1.4)
+      const timeoutId = setTimeout(() => {
+        const pending = this.pendingRequests.get(requestId);
+        if (pending) {
+          this.pendingRequests.delete(requestId);
+          reject(new Error(`Worker request ${requestId} timed out after ${this.requestTimeoutMs}ms`));
+        }
+      }, this.requestTimeoutMs);
+
+      this.pendingRequests.set(requestId, { resolve, reject, timeoutId });
 
       // Send to worker with transferable
       this.worker!.postMessage({
@@ -203,8 +229,9 @@ class WorkerManager {
     }
     this.isInitialized = false;
     this.initPromise = null;
-    // Reject all pending requests before clearing
-    for (const [, { reject }] of this.pendingRequests) {
+    // Clear timeouts and reject all pending requests before clearing
+    for (const [, { reject, timeoutId }] of this.pendingRequests) {
+      clearTimeout(timeoutId);
       reject(new Error('Worker disposed'));
     }
     this.pendingRequests.clear();

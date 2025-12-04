@@ -1,6 +1,6 @@
 'use client';
 
-import { ChangeEvent, useId, useState, useEffect, useRef } from 'react';
+import { ChangeEvent, useId, useState, useEffect, useRef, useCallback } from 'react';
 import { useDebouncedCallback } from '@/lib/hooks';
 
 /** Default debounce delay in milliseconds for slider onChange callbacks */
@@ -30,7 +30,7 @@ export interface SliderProps {
  * - onChange: Called frequently during drag (debounced) - use for CSS preview updates
  * - onCommit: Called once when user releases slider - use for final WASM processing
  * 
- * Requirements: 1.1, 1.2, 1.3, slider-performance 3.1, 3.2
+ * Requirements: 1.1, 1.2, 1.3, slider-performance 3.1, 3.2, performance-fixes 5.1-5.4
  */
 export default function Slider({
   value,
@@ -49,8 +49,10 @@ export default function Slider({
   // Local state for immediate visual feedback
   const [localValue, setLocalValue] = useState(value);
   
-  // Track whether user is actively dragging to prevent prop sync during interaction
-  const isDraggingRef = useRef(false);
+  // Track whether user is actively dragging using React state for proper state management
+  // This allows prop synchronization to resume immediately when dragging ends
+  // Requirements: 5.3, 5.4
+  const [isDragging, setIsDragging] = useState(false);
   
   // Track the last committed value to avoid duplicate commits
   const lastCommittedValueRef = useRef(value);
@@ -62,22 +64,24 @@ export default function Slider({
   // This allows external updates (e.g., AI tool calls) to update the slider
   // while preventing feedback loops during user interaction
   useEffect(() => {
-    if (!isDraggingRef.current) {
+    if (!isDragging) {
       setLocalValue(value);
       lastCommittedValueRef.current = value;
     }
-  }, [value]);
+  }, [value, isDragging]);
 
   const handleChange = (event: ChangeEvent<HTMLInputElement>) => {
     const newValue = Number(event.target.value);
-    isDraggingRef.current = true;
+    setIsDragging(true);
     setLocalValue(newValue);           // Immediate visual update
     debouncedOnChange(newValue);       // Debounced callback for preview
   };
   
   // Handle pointer/mouse up to mark end of drag interaction and commit final value
-  const handlePointerUp = () => {
-    if (!isDraggingRef.current) return;
+  // Uses synchronous state update without setTimeout for immediate prop sync
+  // Requirements: 5.1, 5.2, 5.3, 5.4
+  const handlePointerUp = useCallback(() => {
+    if (!isDragging) return;
     
     const currentValue = localValue;
     
@@ -94,12 +98,10 @@ export default function Slider({
       onCommit(currentValue);
     }
     
-    // Use a small timeout to allow the final callbacks to complete
-    // before we allow prop sync again
-    setTimeout(() => {
-      isDraggingRef.current = false;
-    }, debounceMs + 10);
-  };
+    // Synchronous state update - no setTimeout delay
+    // This immediately allows prop synchronization to resume
+    setIsDragging(false);
+  }, [isDragging, localValue, debouncedOnChange, onChange, onCommit]);
 
   return (
     <div className="flex flex-col gap-2 w-full">
