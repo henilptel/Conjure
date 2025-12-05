@@ -25,6 +25,7 @@ import {
 import { useAppStore } from '@/lib/store';
 import { cn } from '@/lib/utils';
 import { formatBytes, MemoryUsageInfo } from '@/lib/memory-management';
+import { getProcessingMessage } from '@/lib/processing-messages';
 import MemoryStats from './MemoryStats';
 
 type ProcessingStatus = 'idle' | 'initializing' | 'processing' | 'complete' | 'error';
@@ -74,11 +75,15 @@ export default function ImageProcessor() {
   // Subscribe to compare mode state (Requirements: 6.1, 6.2, 6.3)
   const isCompareMode = useAppStore((state) => state.isCompareMode);
   
+  // Subscribe to processing message for dynamic feedback (Requirements: 3.3)
+  const processingMessage = useAppStore((state) => state.processingMessage);
+  
   // Subscribe to actions separately (these are stable references)
-  const { setImageState, setProcessingStatus, resetTools } = useAppStore(
+  const { setImageState, setProcessingStatus, setProcessingMessage, resetTools } = useAppStore(
     useShallow((state) => ({
       setImageState: state.setImageState,
       setProcessingStatus: state.setProcessingStatus,
+      setProcessingMessage: state.setProcessingMessage,
       resetTools: state.resetTools,
     }))
   );
@@ -97,8 +102,15 @@ export default function ImageProcessor() {
   // ImageEngine instance for optimized processing (Requirements: 3.4)
   const engineRef = useRef<ImageEngine | null>(null);
   
-  // imageData: the displayed image (processed with effects)
-  const [imageData, setImageData] = useState<ImageData | null>(null);
+  // Separate storage for original and processed data (Requirements: 2.1)
+  // originalData: the initially loaded image (never modified by effects)
+  const [originalData, setOriginalData] = useState<ImageData | null>(null);
+  // processedData: the image with effects applied
+  const [processedData, setProcessedData] = useState<ImageData | null>(null);
+  
+  // displayData: derived from compare mode - instant swap without WASM (Requirements: 2.2, 2.3, 2.4)
+  const displayData = isCompareMode ? originalData : processedData;
+  
   const fileInputRef = useRef<HTMLInputElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   
@@ -414,16 +426,17 @@ export default function ImageProcessor() {
 
   // Reset transform when image changes to prevent carrying over zoom/pan from previous image
   useEffect(() => {
-    if (imageData) {
+    if (processedData) {
       setTransform(DEFAULT_TRANSFORM);
     }
-  }, [imageData]);
+  }, [processedData]);
 
-  // Render image to canvas when imageData changes (with cached resources)
+  // Render image to canvas when displayData changes (with cached resources)
+  // displayData is derived from isCompareMode - instant swap without WASM (Requirements: 2.2, 2.3, 2.4)
   // Transform is applied via CSS, not canvas context
   // (Requirements: 1.1 - transform application via CSS)
   useLayoutEffect(() => {
-    if (imageData && canvasRef.current) {
+    if (displayData && canvasRef.current) {
       // Always get fresh context from current canvas element with null check
       // This ensures we never use a stale context from an unmounted canvas
       const ctx = canvasCtxRef.current ?? canvasRef.current.getContext('2d');
@@ -438,9 +451,9 @@ export default function ImageProcessor() {
         renderImageToCanvas(
           ctx,
           canvasRef.current,
-          imageData.pixels,
-          imageData.width,
-          imageData.height,
+          displayData.pixels,
+          displayData.width,
+          displayData.height,
           canvasRenderCacheRef.current
         );
         
@@ -451,28 +464,48 @@ export default function ImageProcessor() {
         }
       }
     }
-  }, [imageData]);
+  }, [displayData]);
 
 
 
-  // Unified effect pipeline - all tools flow through activeTools
-  // Compare mode shows original by processing with empty array
-  // This eliminates the "hybrid state" anti-pattern - no special cases
-  // (Requirements: 3.6, 6.1, 6.2)
+  // Track the activeTools that were used to generate current processedData
+  // This allows us to skip re-processing when exiting compare mode if tools haven't changed
+  const lastProcessedToolsRef = useRef<string>('');
+  
+  // Unified effect pipeline - processes activeTools and stores in processedData
+  // Compare mode is handled by displayData derivation - no WASM invocation needed
+  // (Requirements: 2.2, 2.3, 2.4, 3.6)
   useEffect(() => {
     const engine = engineRef.current;
     if (!engine || !engine.hasImage()) return;
+    
+    // Skip processing when in compare mode - displayData handles the swap instantly
+    // (Requirements: 2.2, 2.3, 2.4)
+    if (isCompareMode) return;
+    
+    // Create a fingerprint of current tools to detect changes
+    const toolsFingerprint = JSON.stringify(activeTools.map(t => ({ id: t.id, value: t.value })));
+    
+    // Skip processing if tools haven't changed since last processing
+    // This prevents re-processing when exiting compare mode
+    if (toolsFingerprint === lastProcessedToolsRef.current) return;
 
     // Increment operation counter to invalidate any in-flight operations
     const operationId = ++pipelineOperationRef.current;
     
-    // Determine which tools to apply:
-    // - Compare mode: empty array (shows original)
-    // - Normal mode: activeTools (may be empty, which also shows original)
-    const toolsToApply = isCompareMode ? [] : activeTools;
-    
     // Only show processing indicator when actually applying effects
-    const isApplyingEffects = toolsToApply.length > 0;
+    const isApplyingEffects = activeTools.length > 0;
+    
+    // Determine the processing message based on the active tools
+    // Shows specific message for single tool, count for multiple tools
+    const determineProcessingMessage = (): string => {
+      if (activeTools.length === 0) return '';
+      if (activeTools.length === 1) {
+        return getProcessingMessage(activeTools[0].id);
+      }
+      // For multiple tools, show count
+      return `Applying ${activeTools.length} effects...`;
+    };
 
     const timeoutId = setTimeout(async () => {
       if (pipelineOperationRef.current !== operationId) return;
@@ -481,23 +514,27 @@ export default function ImageProcessor() {
       if (isApplyingEffects) {
         setState(prev => ({ ...prev, error: null, status: 'processing' }));
         setProcessingStatus('processing');
+        setProcessingMessage(determineProcessingMessage());
       }
 
       try {
         const startTime = performance.now();
         
-        // Single unified processing path - ImageEngine handles empty arrays correctly
-        const processedData = engineRef.current.isWorkerReady() && isApplyingEffects
-          ? await engineRef.current.processInWorker(toolsToApply)
-          : await engineRef.current.process(toolsToApply);
+        // Process with current tools - ImageEngine handles empty arrays correctly
+        const result = engineRef.current.isWorkerReady() && isApplyingEffects
+          ? await engineRef.current.processInWorker(activeTools)
+          : await engineRef.current.process(activeTools);
         
         const endTime = performance.now();
         
         if (pipelineOperationRef.current === operationId) {
-          setImageData({ ...processedData });
+          setProcessedData({ ...result });
+          // Update the fingerprint to mark these tools as processed
+          lastProcessedToolsRef.current = toolsFingerprint;
           setLastProcessingTime(endTime - startTime);
           setState(prev => ({ ...prev, status: 'complete' }));
           setProcessingStatus('complete');
+          setProcessingMessage('');
         }
       } catch (err) {
         if (pipelineOperationRef.current === operationId) {
@@ -506,12 +543,13 @@ export default function ImageProcessor() {
             : 'Failed to apply effects. Please try again.';
           setState(prev => ({ ...prev, error: errorMessage, status: 'error' }));
           setProcessingStatus('error');
+          setProcessingMessage('');
         }
       }
     }, isApplyingEffects ? 50 : 0); // Slight delay only when processing effects
 
     return () => clearTimeout(timeoutId);
-  }, [activeTools, isCompareMode, setProcessingStatus]);
+  }, [activeTools, isCompareMode, setProcessingStatus, setProcessingMessage]);
 
 
   const handleFileSelect = async (event: ChangeEvent<HTMLInputElement>) => {
@@ -575,7 +613,13 @@ export default function ImageProcessor() {
       
       // Load image using ImageEngine - decodes once, may downscale (Requirements: 3.5)
       const data = await engineRef.current.loadImage(uint8Array);
-      setImageData(data);
+      // Store both original and processed data (Requirements: 2.1)
+      // originalData: never modified, used for instant compare
+      // processedData: will be updated when effects are applied
+      setOriginalData({ ...data });
+      setProcessedData({ ...data });
+      // Reset the tools fingerprint so processing triggers when tools are applied
+      lastProcessedToolsRef.current = '';
       
       // Check if image was downscaled
       const wasDownscaled = engineRef.current.wasDownscaled();
@@ -701,7 +745,9 @@ export default function ImageProcessor() {
           >
             <div className="w-3.5 h-3.5 rounded-full border-[1.5px] border-white/20 border-t-white animate-spin" />
             <span className="text-xs font-medium text-white/90">
-              {state.status === 'initializing' ? 'Initializing...' : 'Processing...'}
+              {state.status === 'initializing' 
+                ? 'Initializing...' 
+                : (processingMessage || 'Processing...')}
             </span>
           </motion.div>
         )}
@@ -782,7 +828,7 @@ export default function ImageProcessor() {
           
           {/* Zoom Controls - Apple-style glassmorphism matching other UI elements */}
           <div 
-            className="absolute bottom-4 left-4 flex items-center
+            className="absolute bottom-4 right-4 flex items-center
                        bg-white/10 backdrop-blur-2xl backdrop-saturate-150
                        border border-white/20 
                        rounded-full shadow-lg shadow-black/10

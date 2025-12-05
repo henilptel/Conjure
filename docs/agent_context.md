@@ -31,6 +31,6 @@ We are building a web-based image editor that uses "Generative UI".
 (Wait for my specific version prompt).
 
 While testing - 
-testPathPattern:
+testPathPatterns:
 
   Option "testPathPattern" was replaced by "--testPathPatterns". "--testPathPatterns" is only available as a command-line option.
