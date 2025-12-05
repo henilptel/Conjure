@@ -136,10 +136,13 @@ class WorkerManager {
       this.worker!.onmessage = (event: MessageEvent<WorkerResponse>) => {
         if (event.data.type === 'ready') {
           // Worker is ready, send init message
+          // Create a fresh ArrayBuffer copy for transfer - this copy gets neutered
+          // but cachedWasmBytes remains intact for future worker re-initializations
+          const wasmBytesCopy = new Uint8Array(cachedWasmBytes!).buffer;
           this.worker!.postMessage({
             type: 'init',
-            wasmBytes: cachedWasmBytes,
-          }, [cachedWasmBytes!.slice(0)]); // Transfer a copy
+            wasmBytes: wasmBytesCopy,
+          }, [wasmBytesCopy]);
         } else if (event.data.type === 'init-complete') {
           clearTimeout(timeout);
           this.worker!.onmessage = originalHandler;
@@ -911,7 +914,7 @@ export class ImageEngine {
                 };
                 
                 // Update memory tracking
-                this.memoryTracker.record('processedResult', this.lastProcessedResult.pixels.byteLength);
+                this.memoryTracker.record(MEMORY_BUFFER_NAMES.PROCESSED_RESULT, this.lastProcessedResult.pixels.byteLength);
                 
                 // Release lock after callback completes
                 releaseMutex();
@@ -997,7 +1000,7 @@ export class ImageEngine {
       };
       
       // Update memory tracking
-      this.memoryTracker.record('processedResult', this.lastProcessedResult.pixels.byteLength);
+                this.memoryTracker.record(MEMORY_BUFFER_NAMES.PROCESSED_RESULT, this.lastProcessedResult.pixels.byteLength);
 
       return {
         pixels: result.pixels,

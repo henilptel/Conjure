@@ -49,10 +49,12 @@ export default function Slider({
   // Local state for immediate visual feedback
   const [localValue, setLocalValue] = useState(value);
   
-  // Track whether user is actively dragging using React state for proper state management
-  // This allows prop synchronization to resume immediately when dragging ends
+  // Track whether user is actively dragging using both state and ref
+  // State: controls prop synchronization blocking
+  // Ref: provides stable reference for callbacks to avoid stale-closure bugs
   // Requirements: 5.3, 5.4
   const [isDragging, setIsDragging] = useState(false);
+  const isDraggingRef = useRef(false);
   
   // Track the last committed value to avoid duplicate commits
   const lastCommittedValueRef = useRef(value);
@@ -72,16 +74,17 @@ export default function Slider({
 
   const handleChange = (event: ChangeEvent<HTMLInputElement>) => {
     const newValue = Number(event.target.value);
+    isDraggingRef.current = true;
     setIsDragging(true);
     setLocalValue(newValue);           // Immediate visual update
     debouncedOnChange(newValue);       // Debounced callback for preview
   };
   
   // Handle pointer/mouse up to mark end of drag interaction and commit final value
-  // Uses synchronous state update without setTimeout for immediate prop sync
+  // Uses ref instead of state in deps to avoid stale-closure bugs
   // Requirements: 5.1, 5.2, 5.3, 5.4
   const handlePointerUp = useCallback(() => {
-    if (!isDragging) return;
+    if (!isDraggingRef.current) return;
     
     const currentValue = localValue;
     
@@ -98,10 +101,10 @@ export default function Slider({
       onCommit(currentValue);
     }
     
-    // Synchronous state update - no setTimeout delay
-    // This immediately allows prop synchronization to resume
+    // Update both ref and state - ref for callback logic, state for prop sync
+    isDraggingRef.current = false;
     setIsDragging(false);
-  }, [isDragging, localValue, debouncedOnChange, onChange, onCommit]);
+  }, [localValue, debouncedOnChange, onChange, onCommit]);
 
   return (
     <div className="flex flex-col gap-2 w-full">
@@ -119,7 +122,6 @@ export default function Slider({
         value={localValue}
         onChange={handleChange}
         onPointerUp={handlePointerUp}
-        onPointerLeave={handlePointerUp}
         disabled={disabled}
         className={`w-full h-2 rounded-lg appearance-none cursor-pointer ${
           disabled

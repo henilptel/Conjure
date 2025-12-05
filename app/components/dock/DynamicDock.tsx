@@ -37,17 +37,22 @@ export const initialDockState: DockLocalState = {
 const MAX_PROCESSED_IDS = 500;
 
 /**
- * Simple hash function to generate a unique string identifier from text
- * Used to create unique keys without storing entire text content
+ * FNV-1a hash function for generating unique identifiers from text
+ * Uses FNV-1a algorithm which has better distribution than DJB2
+ * Includes length prefix to reduce collision probability for similar strings
  */
 function hashString(str: string): string {
-  let hash = 0;
+  // FNV-1a parameters for 32-bit
+  const FNV_PRIME = 0x01000193;
+  const FNV_OFFSET = 0x811c9dc5;
+  
+  let hash = FNV_OFFSET;
   for (let i = 0; i < str.length; i++) {
-    const char = str.charCodeAt(i);
-    hash = ((hash << 5) - hash) + char;
-    hash = hash | 0; // Convert to 32bit integer
+    hash ^= str.charCodeAt(i);
+    hash = Math.imul(hash, FNV_PRIME);
   }
-  return hash.toString(36);
+  // Convert to unsigned 32-bit and include length for additional uniqueness
+  return `${str.length.toString(36)}_${(hash >>> 0).toString(36)}`;
 }
 
 export function dockReducer(state: DockLocalState, action: DockAction): DockLocalState {
