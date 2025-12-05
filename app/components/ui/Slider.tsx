@@ -218,7 +218,7 @@ export default function Slider({
           <span
             onClick={handleValueClick}
             className="cursor-pointer hover:text-white transition-colors select-none"
-            title="Double Click to edit value"
+            title="Click to edit value"
             role="button"
             tabIndex={disabled ? -1 : 0}
             onKeyDown={(e) => {

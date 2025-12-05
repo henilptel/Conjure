@@ -37,7 +37,7 @@ export function getValidToolNames(): string[] {
  * Requirements: 7.3, 4.1, 4.2, 4.3
  */
 export function buildSystemMessage(imageContext: ImageState): string {
-  const dimensionsText = imageContext.hasImage && imageContext.width && imageContext.height
+  const dimensionsText = imageContext.hasImage && imageContext.width != null && imageContext.height != null
     ? `${imageContext.width}x${imageContext.height} pixels`
     : 'No image loaded';
 

@@ -283,8 +283,8 @@ export default function ImageProcessor() {
         initialScale: transform.scale,
         initialTransform: { ...transform },
       };
-    } else if (event.touches.length === 1 && transform.scale > 1) {
-      // Single finger drag when zoomed in - allow panning
+    } else if (event.touches.length === 1 && transform.scale !== 1) {
+      // Single finger drag when scale is not 1 - allow panning
       event.preventDefault();
       setIsPanning(true);
       lastPanPositionRef.current = { 

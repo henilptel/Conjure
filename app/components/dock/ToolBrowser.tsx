@@ -96,7 +96,7 @@ export default function ToolBrowser({ isOpen, onClose, onToolSelect, initialCate
     if (activeToolIds.has(tool.id)) {
       setExpandedToolId(expandedToolId === tool.id ? null : tool.id);
     } else {
-      addTool([{ name: tool.id }]);
+      addTool([{ name: tool.id }]); // It needs to be name and not id 
       setExpandedToolId(tool.id);
       onToolSelect?.(tool.id);
     }
@@ -285,21 +285,14 @@ function ToolCard({
 }: ToolCardProps) {
   const displayValue = currentValue ?? tool.defaultValue;
 
-  const formatValue = (value: number): string => {
+  const formatValue = (value: number, includeInvert: boolean = true): string => {
     if (tool.id === 'rotate') return `${value}°`;
-    if (tool.id === 'invert') return value > 0 ? 'On' : 'Off';
+    if (includeInvert && tool.id === 'invert') return value > 0 ? 'On' : 'Off';
     if (['brightness', 'saturation', 'hue'].includes(tool.id)) return `${value}%`;
     return String(value);
   };
 
-  /**
-   * Creates a format function for slider display based on tool ID
-   */
-  const createSliderFormatter = (toolId: string) => (value: number): string => {
-    if (toolId === 'rotate') return `${value}°`;
-    if (['brightness', 'saturation', 'hue'].includes(toolId)) return `${value}%`;
-    return String(value);
-  };
+  const createSliderFormatter = () => (value: number): string => formatValue(value, false);
 
   return (
     <motion.div

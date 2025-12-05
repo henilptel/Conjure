@@ -56,6 +56,16 @@ function ToastItem({
     return () => clearTimeout(timer);
   }, [handleDismiss, autoDismissMs, message.timestamp]);
 
+  const handleKeyDown = useCallback(
+    (e: React.KeyboardEvent) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        handleDismiss();
+      }
+    },
+    [handleDismiss]
+  );
+
   return (
     <motion.div
       layout
@@ -65,9 +75,11 @@ function ToastItem({
       exit="exit"
       transition={{ duration: 0.2, ease: 'easeOut' }}
       onClick={handleDismiss}
+      onKeyDown={handleKeyDown}
+      tabIndex={0}
       className="px-4 py-2.5 bg-white/10 backdrop-blur-2xl backdrop-saturate-150 border border-white/20 
                  rounded-full shadow-lg shadow-black/10 cursor-pointer hover:bg-white/15 
-                 transition-colors max-w-sm"
+                 transition-colors max-w-sm focus:outline-none focus:ring-2 focus:ring-white/40"
       role="alert"
       aria-live="polite"
       data-testid={`ghost-toast-${message.id}`}

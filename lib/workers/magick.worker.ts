@@ -151,27 +151,36 @@ function handleProcess(
       });
 
       ImageMagick.read(bytes, (image) => {
-        // Apply effects
-        for (const tool of sortedTools) {
-          const executor = TOOL_EXECUTORS[tool.id];
-          if (executor) {
-            executor(image, tool.value);
+        try {
+          // Apply effects
+          for (const tool of sortedTools) {
+            const executor = TOOL_EXECUTORS[tool.id];
+            if (executor) {
+              executor(image, tool.value);
+            }
           }
-        }
 
-        const width = image.width;
-        const height = image.height;
+          const width = image.width;
+          const height = image.height;
 
-        image.write(MagickFormat.Rgba, (pixels) => {
-          const pixelsCopy = new Uint8Array(pixels).buffer;
-          resolve({
-            type: 'process-complete',
-            requestId,
-            pixels: pixelsCopy,
-            width,
-            height,
+          image.write(MagickFormat.Rgba, (pixels) => {
+            const pixelsCopy = new Uint8Array(pixels).buffer;
+            resolve({
+              type: 'process-complete',
+              requestId,
+              pixels: pixelsCopy,
+              width,
+              height,
+            });
           });
-        });
+        } catch (error) {
+          const errorMessage = error instanceof Error ? error.message : 'Unknown processing error';
+          resolve({
+            type: 'process-error',
+            requestId,
+            error: errorMessage,
+          });
+        }
       });
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown processing error';

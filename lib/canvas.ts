@@ -152,6 +152,13 @@ export function calculatePinchTransform(
   canvasWidth: number,
   canvasHeight: number
 ): CanvasTransform {
+  // Guard against division by zero when computing scale ratio
+  const EPSILON = 1e-6;
+  if (pinchState.initialDistance < EPSILON) {
+    // Return the initial transform if initial distance is too small
+    return pinchState.initialTransform;
+  }
+  
   // Calculate scale change
   const scaleRatio = currentDistance / pinchState.initialDistance;
   const newScale = Math.max(
@@ -414,6 +421,7 @@ export function renderImageToCanvas(
   // Offscreen canvas holds the full-resolution image data
   const needsNewOffscreen = 
     !cache.offscreenCanvas ||
+    !cache.imageData ||
     cache.cachedWidth !== width ||
     cache.cachedHeight !== height;
   

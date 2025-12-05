@@ -118,6 +118,9 @@ class WorkerManager {
 
     this.worker.onerror = (event) => {
       console.error('Worker error:', event);
+      // Reset state so reinitialization can be attempted
+      this.isInitialized = false;
+      this.initPromise = null;
       // Clear timeouts and reject all pending requests
       for (const [, { reject, timeoutId }] of this.pendingRequests) {
         clearTimeout(timeoutId);
@@ -989,18 +992,24 @@ export class ImageEngine {
       // Process in worker (non-blocking)
       const result = await this.workerManager.process(sourceBytes, activeTools);
 
-      // Update memoization cache with worker result
-      const currentSignature = this.computeToolsSignature(activeTools);
-      this.lastToolsSignature = currentSignature;
-      this.lastProcessedResult = {
-        pixels: new Uint8Array(result.pixels),
-        width: result.width,
-        height: result.height,
-        originalBytes: sourceBytes,
-      };
-      
-      // Update memory tracking
-                this.memoryTracker.record(MEMORY_BUFFER_NAMES.PROCESSED_RESULT, this.lastProcessedResult.pixels.byteLength);
+      // Re-acquire lock to safely update memoization cache
+      await this.mutex.acquire();
+      try {
+        // Update memoization cache with worker result
+        const currentSignature = this.computeToolsSignature(activeTools);
+        this.lastToolsSignature = currentSignature;
+        this.lastProcessedResult = {
+          pixels: new Uint8Array(result.pixels),
+          width: result.width,
+          height: result.height,
+          originalBytes: sourceBytes,
+        };
+        
+        // Update memory tracking
+        this.memoryTracker.record(MEMORY_BUFFER_NAMES.PROCESSED_RESULT, this.lastProcessedResult.pixels.byteLength);
+      } finally {
+        this.mutex.release();
+      }
 
       return {
         pixels: result.pixels,
