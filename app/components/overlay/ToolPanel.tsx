@@ -6,6 +6,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useShallow } from 'zustand/react/shallow';
 import Slider from '../ui/Slider';
 import { useAppStore } from '@/lib/store';
+import { getToolConfig } from '@/lib/tools-registry';
 
 export interface ToolPanelProps {
   disabled?: boolean;
@@ -20,6 +21,15 @@ const toolPanelVariants = {
   initial: { opacity: 0, y: 20 },
   animate: { opacity: 1, y: 0 },
   exit: { opacity: 0, y: 20 }
+};
+
+/**
+ * Creates a format function for slider display based on tool ID
+ */
+const createSliderFormatter = (toolId: string) => (value: number): string => {
+  if (toolId === 'rotate') return `${value}°`;
+  if (['brightness', 'saturation', 'hue'].includes(toolId)) return `${value}%`;
+  return String(value);
 };
 
 /**
@@ -80,6 +90,8 @@ export default function ToolPanel({
                     max={tool.max}
                     onChange={(value) => handleSliderChange(tool.id, value)}
                     disabled={disabled}
+                    defaultValue={getToolConfig(tool.id)?.defaultValue}
+                    formatValue={createSliderFormatter(tool.id)}
                   />
                 </div>
                 <button

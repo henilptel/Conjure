@@ -219,6 +219,15 @@ const formatValue = (value: number, toolId: string): string => {
   return String(value);
 };
 
+/**
+ * Creates a format function for slider display based on tool ID
+ */
+const createSliderFormatter = (toolId: string) => (value: number): string => {
+  if (toolId === 'rotate') return `${value}°`;
+  if (['brightness', 'saturation', 'hue'].includes(toolId)) return `${value}%`;
+  return String(value);
+};
+
 const ToolItem = memo(function ToolItem({
   tool,
   icon: Icon,
@@ -286,6 +295,8 @@ const ToolItem = memo(function ToolItem({
                 label={tool.label}
                 disabled={disabled}
                 id={`panel-slider-${tool.id}`}
+                defaultValue={toolConfig?.defaultValue}
+                formatValue={createSliderFormatter(tool.id)}
               />
             </div>
           </motion.div>

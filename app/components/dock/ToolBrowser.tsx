@@ -292,6 +292,15 @@ function ToolCard({
     return String(value);
   };
 
+  /**
+   * Creates a format function for slider display based on tool ID
+   */
+  const createSliderFormatter = (toolId: string) => (value: number): string => {
+    if (toolId === 'rotate') return `${value}°`;
+    if (['brightness', 'saturation', 'hue'].includes(toolId)) return `${value}%`;
+    return String(value);
+  };
+
   return (
     <motion.div
       layout
@@ -357,6 +366,8 @@ function ToolCard({
                 onChange={onSliderChange}
                 label={tool.label}
                 id={`browser-slider-${tool.id}`}
+                defaultValue={tool.defaultValue}
+                formatValue={createSliderFormatter(tool.id)}
               />
             </div>
           </motion.div>
