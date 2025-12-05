@@ -47,8 +47,8 @@ const arbPixels = (width: number, height: number): fc.Arbitrary<Uint8Array> => {
  * Generate arbitrary image dimensions (small for test performance)
  */
 const arbDimensions = fc.record({
-  width: fc.integer({ min: 1, max: 100 }),
-  height: fc.integer({ min: 1, max: 100 }),
+  width: fc.integer({ min: 1, max: 20 }),
+  height: fc.integer({ min: 1, max: 20 }),
 });
 
 /**

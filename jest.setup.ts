@@ -8,3 +8,9 @@ Object.assign(globalThis, {
   ReadableStream,
   WritableStream,
 });
+
+// Mock window.scrollTo to suppress JSDOM "Not implemented" warnings
+Object.defineProperty(window, 'scrollTo', {
+  value: jest.fn(),
+  writable: true,
+});

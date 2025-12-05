@@ -21,7 +21,7 @@ afterEach(() => {
 const validSliderPropsArb = fc.record({
   min: fc.integer({ min: 0, max: 50 }),
   max: fc.integer({ min: 51, max: 100 }),
-  label: fc.stringMatching(/^[a-zA-Z][a-zA-Z0-9 ]{0,19}$/).filter(s => s.trim().length > 0),
+  label: fc.string({ minLength: 1, maxLength: 20 }).filter(s => /^[a-zA-Z][a-zA-Z0-9 ]*$/.test(s) && s.trim().length > 0),
 }).chain(({ min, max, label }) =>
   fc.record({
     min: fc.constant(min),

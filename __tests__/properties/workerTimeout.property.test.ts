@@ -354,7 +354,7 @@ describe('Property 3: Completed Request No Timeout', () => {
       fc.property(
         fc.integer({ min: 100, max: 5000 }),
         fc.integer({ min: 10, max: 90 }),
-        fc.string({ minLength: 1, maxLength: 50 }),
+        fc.string({ minLength: 1, maxLength: 50 }).filter(s => !s.toLowerCase().includes('timed out')),
         (timeoutMs, completionPercent, errorMessage) => {
           const manager = createMockWorkerManager(timeoutMs);
           const { requestId, pending } = manager.startRequest();

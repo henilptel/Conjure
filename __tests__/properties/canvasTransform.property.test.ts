@@ -215,13 +215,19 @@ describe('Property 2: Zoom Scale Change', () => {
             return;
           }
           
-          // When zooming at center, the center point should remain fixed
-          // The image point at center before zoom should equal image point at center after zoom
-          const imagePointBeforeX = (0 - transform.x) / transform.scale;
-          const imagePointBeforeY = (0 - transform.y) / transform.scale;
+          // When zooming at center of canvas, the center point (origin of transform) should remain fixed
+          // The image point under the cursor (canvas center) before zoom should equal the image point after zoom
+          // Using the formula from calculateZoomTransform:
+          // cursorFromCenter = cursorX - canvasWidth/2 = 0 (since cursor is at center)
+          // imageX = (cursorFromCenter - oldX) / oldScale = (-oldX) / oldScale
+          const cursorFromCenterX = centerX - canvasWidth / 2; // = 0
+          const cursorFromCenterY = centerY - canvasHeight / 2; // = 0
           
-          const imagePointAfterX = (0 - result.x) / result.scale;
-          const imagePointAfterY = (0 - result.y) / result.scale;
+          const imagePointBeforeX = (cursorFromCenterX - transform.x) / transform.scale;
+          const imagePointBeforeY = (cursorFromCenterY - transform.y) / transform.scale;
+          
+          const imagePointAfterX = (cursorFromCenterX - result.x) / result.scale;
+          const imagePointAfterY = (cursorFromCenterY - result.y) / result.scale;
           
           expect(imagePointAfterX).toBeCloseTo(imagePointBeforeX, 5);
           expect(imagePointAfterY).toBeCloseTo(imagePointBeforeY, 5);

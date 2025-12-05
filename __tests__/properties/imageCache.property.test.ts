@@ -245,12 +245,8 @@ describe('Property 3: New image replaces previous cache', () => {
           
           // New references should be created (not reusing old arrays)
           // This ensures old data is eligible for garbage collection
-          if (dims1.width !== dims2.width || dims1.height !== dims2.height) {
-            expect(secondPixels).not.toBe(firstPixels);
-          }
-          if (bytes1.length !== bytes2.length) {
-            expect(secondBytes).not.toBe(firstBytes);
-          }
+          expect(secondPixels).not.toBe(firstPixels);
+          expect(secondBytes).not.toBe(firstBytes);
         }
       ),
       { numRuns: 100 }

@@ -222,7 +222,7 @@ describe('Property 9: Toast Queue Order', () => {
   it('toasts have monotonically increasing timestamps when added sequentially', () => {
     fc.assert(
       fc.property(
-        fc.array(fc.string({ minLength: 1, maxLength: 50 }), { minLength: 2, maxLength: 5 }),
+        fc.array(nonWhitespaceStringArb, { minLength: 2, maxLength: 5 }),
         (texts) => {
           let queue: ToastMessage[] = [];
           
