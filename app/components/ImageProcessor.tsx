@@ -3,10 +3,25 @@
 import { useState, useRef, ChangeEvent, useLayoutEffect, useEffect, useCallback } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Upload, RotateCcw, Eye, AlertTriangle } from 'lucide-react';
+import { Upload, RotateCcw, Eye, AlertTriangle, Plus, Minus } from 'lucide-react';
 import { validateImageFile, FileValidationResult } from '@/lib/validation';
 import { initializeMagick, ImageEngine, ImageData } from '@/lib/magick';
-import { renderImageToCanvas, createCanvasRenderCache, CanvasRenderCache, clearCanvasRenderCache, getCanvasRenderCacheSize } from '@/lib/canvas';
+import { 
+  renderImageToCanvas, 
+  createCanvasRenderCache, 
+  CanvasRenderCache, 
+  clearCanvasRenderCache, 
+  getCanvasRenderCacheSize,
+  CanvasTransform,
+  DEFAULT_TRANSFORM,
+  calculateZoomTransform,
+  calculatePanTransform,
+  screenToCanvasCoords,
+  getTouchDistance,
+  getTouchCenter,
+  calculatePinchTransform,
+  PinchState,
+} from '@/lib/canvas';
 import { useAppStore } from '@/lib/store';
 import { cn } from '@/lib/utils';
 import { formatBytes, MemoryUsageInfo } from '@/lib/memory-management';
@@ -91,6 +106,20 @@ export default function ImageProcessor() {
   const canvasCtxRef = useRef<CanvasRenderingContext2D | null>(null);
   const canvasRenderCacheRef = useRef<CanvasRenderCache>(createCanvasRenderCache());
   
+  // Canvas transform state for zoom/pan (Requirements: 1.1, 1.2, 1.4)
+  const [transform, setTransform] = useState<CanvasTransform>(DEFAULT_TRANSFORM);
+  
+  // Pan tracking state and refs for mouse drag operations
+  const [isPanning, setIsPanning] = useState(false);
+  const [isAltPressed, setIsAltPressed] = useState(false);
+  const lastPanPositionRef = useRef({ x: 0, y: 0 });
+  
+  // Container ref for accurate coordinate calculations
+  const containerRef = useRef<HTMLDivElement>(null);
+  
+  // Touch gesture state for pinch-to-zoom
+  const pinchStateRef = useRef<PinchState | null>(null);
+  
   // Callback ref to detect canvas element changes and invalidate cached context
   const canvasCallbackRef = useCallback((node: HTMLCanvasElement | null) => {
     // Store the element reference
@@ -127,7 +156,272 @@ export default function ImageProcessor() {
     return stats.image;
   }, []);
 
+  /**
+   * Handle mouse wheel for zoom (Requirements: 1.2, 1.3)
+   * Zooms centered on cursor position, using correct coordinate conversion
+   */
+  const handleWheel = useCallback((event: React.WheelEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    
+    const canvas = canvasRef.current;
+    const container = containerRef.current;
+    if (!canvas || !container) return;
+    
+    const containerRect = container.getBoundingClientRect();
+    
+    // Convert screen coordinates to canvas-relative coordinates
+    // This properly accounts for CSS transforms on the canvas
+    setTransform(prev => {
+      const canvasCoords = screenToCanvasCoords(
+        event.clientX,
+        event.clientY,
+        containerRect,
+        canvas.width,
+        canvas.height,
+        prev
+      );
+      
+      // Positive deltaY = scroll down = zoom out, negative = zoom in
+      const delta = event.deltaY < 0 ? 1 : -1;
+      
+      return calculateZoomTransform(
+        prev,
+        delta,
+        canvasCoords.x,
+        canvasCoords.y,
+        canvas.width,
+        canvas.height
+      );
+    });
+  }, []);
+
+  /**
+   * Handle mouse down for pan initiation (Requirements: 1.4)
+   * Starts panning on:
+   * - Regular left-click drag when zoomed (scale !== 1)
+   * - Alt+left click drag at any zoom level
+   * - Middle mouse button drag at any zoom level
+   */
+  const handleMouseDown = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
+    // Middle mouse button always initiates pan
+    if (event.button === 1) {
+      event.preventDefault();
+      setIsPanning(true);
+      lastPanPositionRef.current = { x: event.clientX, y: event.clientY };
+      return;
+    }
+    
+    // Left click: pan if Alt is held OR if zoomed (in or out)
+    if (event.button === 0 && (event.altKey || transform.scale !== 1)) {
+      event.preventDefault();
+      setIsPanning(true);
+      lastPanPositionRef.current = { x: event.clientX, y: event.clientY };
+    }
+  }, [transform.scale]);
+
+  /**
+   * Handle mouse move for panning (Requirements: 1.4)
+   */
+  const handleMouseMove = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
+    if (!isPanning) return;
+    
+    const deltaX = event.clientX - lastPanPositionRef.current.x;
+    const deltaY = event.clientY - lastPanPositionRef.current.y;
+    
+    lastPanPositionRef.current = { x: event.clientX, y: event.clientY };
+    
+    setTransform(prev => calculatePanTransform(prev, deltaX, deltaY));
+  }, [isPanning]);
+
+  /**
+   * Handle mouse up to end panning (Requirements: 1.4)
+   */
+  const handleMouseUp = useCallback(() => {
+    setIsPanning(false);
+  }, []);
+
+  /**
+   * Handle mouse leave to end panning if cursor leaves canvas
+   */
+  const handleMouseLeave = useCallback(() => {
+    setIsPanning(false);
+  }, []);
+
+  /**
+   * Handle touch start for pinch-to-zoom and two-finger pan
+   */
+  const handleTouchStart = useCallback((event: React.TouchEvent<HTMLDivElement>) => {
+    const canvas = canvasRef.current;
+    const container = containerRef.current;
+    if (!canvas || !container) return;
+    
+    if (event.touches.length === 2) {
+      // Two-finger gesture: pinch-to-zoom or pan
+      event.preventDefault();
+      
+      const touch1 = { x: event.touches[0].clientX, y: event.touches[0].clientY, id: event.touches[0].identifier };
+      const touch2 = { x: event.touches[1].clientX, y: event.touches[1].clientY, id: event.touches[1].identifier };
+      
+      const distance = getTouchDistance(touch1, touch2);
+      const center = getTouchCenter(touch1, touch2);
+      
+      pinchStateRef.current = {
+        initialDistance: distance,
+        initialCenter: center,
+        initialScale: transform.scale,
+        initialTransform: { ...transform },
+      };
+    } else if (event.touches.length === 1 && transform.scale > 1) {
+      // Single finger drag when zoomed in - allow panning
+      event.preventDefault();
+      setIsPanning(true);
+      lastPanPositionRef.current = { 
+        x: event.touches[0].clientX, 
+        y: event.touches[0].clientY 
+      };
+    }
+  }, [transform]);
+
+  /**
+   * Handle touch move for pinch-to-zoom and two-finger pan
+   */
+  const handleTouchMove = useCallback((event: React.TouchEvent<HTMLDivElement>) => {
+    const canvas = canvasRef.current;
+    const container = containerRef.current;
+    if (!canvas || !container) return;
+    
+    if (event.touches.length === 2 && pinchStateRef.current) {
+      // Two-finger gesture: pinch-to-zoom
+      event.preventDefault();
+      
+      const touch1 = { x: event.touches[0].clientX, y: event.touches[0].clientY, id: event.touches[0].identifier };
+      const touch2 = { x: event.touches[1].clientX, y: event.touches[1].clientY, id: event.touches[1].identifier };
+      
+      const currentDistance = getTouchDistance(touch1, touch2);
+      const currentCenter = getTouchCenter(touch1, touch2);
+      const containerRect = container.getBoundingClientRect();
+      
+      const newTransform = calculatePinchTransform(
+        pinchStateRef.current,
+        currentDistance,
+        currentCenter,
+        containerRect,
+        canvas.width,
+        canvas.height
+      );
+      
+      setTransform(newTransform);
+    } else if (event.touches.length === 1 && isPanning) {
+      // Single finger panning when zoomed in
+      event.preventDefault();
+      
+      const deltaX = event.touches[0].clientX - lastPanPositionRef.current.x;
+      const deltaY = event.touches[0].clientY - lastPanPositionRef.current.y;
+      
+      lastPanPositionRef.current = { 
+        x: event.touches[0].clientX, 
+        y: event.touches[0].clientY 
+      };
+      
+      setTransform(prev => calculatePanTransform(prev, deltaX, deltaY));
+    }
+  }, [isPanning]);
+
+  /**
+   * Handle touch end to reset gesture state
+   */
+  const handleTouchEnd = useCallback(() => {
+    pinchStateRef.current = null;
+    setIsPanning(false);
+  }, []);
+
+  /**
+   * Keyboard shortcuts for zoom/pan (Requirements: 1.5, 1.6, 1.7)
+   * + key: zoom in toward center
+   * - key: zoom out from center
+   * 0 key: reset to fit-to-screen
+   * Also tracks Alt key state for cursor feedback
+   */
+  useEffect(() => {
+    if (!state.hasImage) return;
+    
+    const handleKeyDown = (event: KeyboardEvent) => {
+      // Track Alt key for cursor feedback
+      if (event.key === 'Alt') {
+        setIsAltPressed(true);
+      }
+      
+      // Ignore if user is typing in an input field
+      if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement) {
+        return;
+      }
+      
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+      
+      // Calculate canvas center for keyboard zoom
+      const centerX = canvas.width / 2;
+      const centerY = canvas.height / 2;
+      
+      switch (event.key) {
+        case '+':
+        case '=': // Allow = key without shift for convenience
+          event.preventDefault();
+          setTransform(prev => calculateZoomTransform(
+            prev,
+            1, // zoom in
+            centerX,
+            centerY,
+            canvas.width,
+            canvas.height
+          ));
+          break;
+          
+        case '-':
+        case '_': // Allow _ key (shift+-) for consistency
+          event.preventDefault();
+          setTransform(prev => calculateZoomTransform(
+            prev,
+            -1, // zoom out
+            centerX,
+            centerY,
+            canvas.width,
+            canvas.height
+          ));
+          break;
+          
+        case '0':
+          event.preventDefault();
+          // Reset to default transform (fit-to-screen)
+          setTransform(DEFAULT_TRANSFORM);
+          break;
+      }
+    };
+    
+    const handleKeyUp = (event: KeyboardEvent) => {
+      if (event.key === 'Alt') {
+        setIsAltPressed(false);
+      }
+    };
+    
+    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('keyup', handleKeyUp);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('keyup', handleKeyUp);
+    };
+  }, [state.hasImage]);
+
+  // Reset transform when image changes to prevent carrying over zoom/pan from previous image
+  useEffect(() => {
+    if (imageData) {
+      setTransform(DEFAULT_TRANSFORM);
+    }
+  }, [imageData]);
+
   // Render image to canvas when imageData changes (with cached resources)
+  // Transform is applied via CSS, not canvas context
+  // (Requirements: 1.1 - transform application via CSS)
   useLayoutEffect(() => {
     if (imageData && canvasRef.current) {
       // Always get fresh context from current canvas element with null check
@@ -140,6 +434,7 @@ export default function ImageProcessor() {
           canvasCtxRef.current = ctx;
         }
         
+        // Render without transform - CSS handles zoom/pan
         renderImageToCanvas(
           ctx,
           canvasRef.current,
@@ -339,15 +634,18 @@ export default function ImageProcessor() {
 
   // Cleanup on unmount
   useEffect(() => {
+    // Capture ref values at effect setup time
+    const engine = engineRef.current;
+    const cache = canvasRenderCacheRef.current;
+    
     return () => {
-      if (engineRef.current) {
+      if (engine) {
         // Use async dispose for thread-safe cleanup
         // Fire-and-forget since we're unmounting
-        engineRef.current.disposeAsync();
-        engineRef.current = null;
+        engine.disposeAsync();
       }
       // Clear canvas render cache to free memory
-      clearCanvasRenderCache(canvasRenderCacheRef.current);
+      clearCanvasRenderCache(cache);
     };
   }, []);
 
@@ -447,13 +745,99 @@ export default function ImageProcessor() {
       )}
 
       {/* Canvas for Image Display - centered, floating appearance (Requirements: 3.3, 3.4) */}
+      {/* Zoom/Pan support via CSS transforms (Requirements: 1.1, 1.2, 1.4) */}
       {state.hasImage && (
-        <div className="flex items-center justify-center h-full w-full p-8">
+        <div 
+          ref={containerRef}
+          className="relative flex items-center justify-center h-full w-full p-8 overflow-hidden"
+          onWheel={handleWheel}
+          onMouseDown={handleMouseDown}
+          onMouseMove={handleMouseMove}
+          onMouseUp={handleMouseUp}
+          onMouseLeave={handleMouseLeave}
+          onTouchStart={handleTouchStart}
+          onTouchMove={handleTouchMove}
+          onTouchEnd={handleTouchEnd}
+          onContextMenu={(e) => e.preventDefault()}
+          style={{ 
+            cursor: isPanning 
+              ? 'grabbing' 
+              : transform.scale !== 1 
+                ? 'grab'  // When zoomed (in or out), show grab cursor (can pan by dragging)
+                : isAltPressed 
+                  ? 'grab'  // When Alt is held, show grab cursor
+                  : 'default',
+            touchAction: 'none', // Disable browser touch gestures
+          }}
+        >
           <canvas
             ref={canvasCallbackRef}
-            className="max-w-full max-h-full"
+            className="shadow-2xl rounded-sm"
             data-testid="image-canvas"
+            style={{ 
+              transform: `translate(${transform.x}px, ${transform.y}px) scale(${transform.scale})`,
+              transformOrigin: 'center center',
+            }}
           />
+          
+          {/* Zoom Controls - Apple-style glassmorphism matching other UI elements */}
+          <div 
+            className="absolute bottom-4 left-4 flex items-center
+                       bg-white/10 backdrop-blur-2xl backdrop-saturate-150
+                       border border-white/20 
+                       rounded-full shadow-lg shadow-black/10
+                       select-none"
+            data-testid="zoom-controls"
+          >
+            {/* Zoom Out Button */}
+            <button
+              onClick={() => {
+                const canvas = canvasRef.current;
+                if (!canvas) return;
+                const centerX = canvas.width / 2;
+                const centerY = canvas.height / 2;
+                setTransform(prev => calculateZoomTransform(
+                  prev, -1, centerX, centerY, canvas.width, canvas.height
+                ));
+              }}
+              className="p-2 hover:bg-white/10 rounded-full transition-colors
+                         disabled:opacity-40 disabled:cursor-not-allowed"
+              disabled={transform.scale <= 0.1}
+              aria-label="Zoom out"
+            >
+              <Minus className="w-4 h-4 text-white/90" />
+            </button>
+            
+            {/* Zoom Percentage - clickable to reset */}
+            <button
+              onClick={() => setTransform(DEFAULT_TRANSFORM)}
+              className="px-1 min-w-[3rem] text-center text-xs font-medium text-white/90
+                         hover:bg-white/10 transition-colors"
+              title="Click to reset zoom (or press 0)"
+              aria-label="Reset zoom"
+            >
+              {Math.round(transform.scale * 100)}%
+            </button>
+            
+            {/* Zoom In Button */}
+            <button
+              onClick={() => {
+                const canvas = canvasRef.current;
+                if (!canvas) return;
+                const centerX = canvas.width / 2;
+                const centerY = canvas.height / 2;
+                setTransform(prev => calculateZoomTransform(
+                  prev, 1, centerX, centerY, canvas.width, canvas.height
+                ));
+              }}
+              className="p-2 hover:bg-white/10 rounded-full transition-colors
+                         disabled:opacity-40 disabled:cursor-not-allowed"
+              disabled={transform.scale >= 5}
+              aria-label="Zoom in"
+            >
+              <Plus className="w-4 h-4 text-white/90" />
+            </button>
+          </div>
         </div>
       )}
 
