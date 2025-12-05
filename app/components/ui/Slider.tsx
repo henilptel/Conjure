@@ -122,6 +122,7 @@ export default function Slider({
         value={localValue}
         onChange={handleChange}
         onPointerUp={handlePointerUp}
+        onPointerLeave={handlePointerUp}
         disabled={disabled}
         className={`w-full h-2 rounded-lg appearance-none cursor-pointer ${
           disabled

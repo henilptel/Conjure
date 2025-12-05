@@ -61,6 +61,64 @@ describe('parseRequestBody', () => {
 
     expect(() => parseRequestBody(body)).toThrow('imageContext is required');
   });
+
+  // Tests for documented empty message filtering behavior
+  it('should drop messages with empty string content and log warning', () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation();
+    const body = {
+      messages: [
+        { role: 'user', content: 'Hello' },
+        { role: 'assistant', content: '' }, // Empty content - should be dropped
+        { role: 'user', content: 'World' },
+      ],
+      imageContext: defaultImageState,
+    };
+
+    const result = parseRequestBody(body);
+
+    expect(result.messages).toHaveLength(2);
+    expect(result.messages[0].content).toBe('Hello');
+    expect(result.messages[1].content).toBe('World');
+    expect(warnSpy).toHaveBeenCalledWith('[parseRequestBody] Dropping assistant message with empty content');
+    warnSpy.mockRestore();
+  });
+
+  it('should handle AI SDK v5 format with tool-only messages (no text parts)', () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation();
+    const body = {
+      messages: [
+        { role: 'user', content: 'blur it' },
+        { 
+          role: 'assistant', 
+          parts: [
+            { type: 'tool-invocation', toolName: 'show_tools', args: {} }
+          ] 
+        }, // Tool-only message - should be dropped
+      ],
+      imageContext: defaultImageState,
+    };
+
+    const result = parseRequestBody(body);
+
+    expect(result.messages).toHaveLength(1);
+    expect(result.messages[0].content).toBe('blur it');
+    expect(warnSpy).toHaveBeenCalledWith('[parseRequestBody] Dropping assistant message with empty content');
+    warnSpy.mockRestore();
+  });
+
+  it('should preserve messages with whitespace content (not empty)', () => {
+    const body = {
+      messages: [
+        { role: 'user', content: '   ' }, // Whitespace - preserved (not empty string)
+      ],
+      imageContext: defaultImageState,
+    };
+
+    const result = parseRequestBody(body);
+
+    expect(result.messages).toHaveLength(1);
+    expect(result.messages[0].content).toBe('   ');
+  });
 });
 
 describe('buildSystemMessage', () => {
@@ -80,6 +138,7 @@ describe('buildSystemMessage', () => {
       height: 600,
       blur: 5,
       isGrayscale: true,
+      activeTools: [],
     };
 
     const message = buildSystemMessage(imageState);

@@ -257,33 +257,38 @@ describe('Property 2: Timeout Cleanup', () => {
     );
   });
 
-  it('should not affect other pending requests when one times out', () => {
+  it('should isolate request timeouts within the same manager', () => {
     fc.assert(
       fc.property(
-        fc.integer({ min: 100, max: 500 }),
-        fc.integer({ min: 200, max: 1000 }),
-        (shortTimeout, longTimeout) => {
-          // Ensure longTimeout > shortTimeout
-          const actualLongTimeout = Math.max(longTimeout, shortTimeout + 100);
-          
-          const shortManager = createMockWorkerManager(shortTimeout);
-          const longManager = createMockWorkerManager(actualLongTimeout);
+        fc.integer({ min: 200, max: 1000 }), // timeoutMs
+        fc.integer({ min: 50, max: 150 }),   // delayMs
+        (timeoutMs, delayMs) => {
+          const manager = createMockWorkerManager(timeoutMs);
 
-          shortManager.startRequest();
-          const { requestId: longReqId } = longManager.startRequest();
+          // Start first request
+          const { requestId: req1Id } = manager.startRequest();
 
-          // Advance past short timeout but not long timeout
-          jest.advanceTimersByTime(shortTimeout + 10);
+          // Advance time to stagger the second request
+          jest.advanceTimersByTime(delayMs);
 
-          // Short should be timed out
-          expect(shortManager.getPendingCount()).toBe(0);
-          
-          // Long should still be pending
-          expect(longManager.isPending(longReqId)).toBe(true);
+          // Start second request
+          const { requestId: req2Id } = manager.startRequest();
 
-          // Clean up
-          shortManager.dispose();
-          longManager.dispose();
+          // Advance time exactly enough to timeout the first request
+          // req1 expires at T=timeoutMs
+          // Current T=delayMs
+          // We need to advance by (timeoutMs - delayMs) + 1
+          jest.advanceTimersByTime(timeoutMs - delayMs + 1);
+
+          // First request should be timed out (removed)
+          expect(manager.isPending(req1Id)).toBe(false);
+
+          // Second request should still be pending
+          // It has only been running for (timeoutMs - delayMs + 1), which is < timeoutMs
+          // because delayMs > 1
+          expect(manager.isPending(req2Id)).toBe(true);
+
+          manager.dispose();
           return true;
         }
       ),

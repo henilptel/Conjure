@@ -179,11 +179,10 @@ describe('Property 5: Slider Synchronous State Update', () => {
     const testValuesArb = fc.record({
       initialValue: fc.integer({ min: 0, max: 100 }),
       dragValue: fc.integer({ min: 0, max: 100 }),
-      externalValue: fc.integer({ min: 0, max: 100 }),
     }).filter(({ initialValue, dragValue }) => initialValue !== dragValue);
     
     fc.assert(
-      fc.property(testValuesArb, ({ initialValue, dragValue, externalValue }) => {
+      fc.property(testValuesArb, ({ initialValue, dragValue }) => {
         cleanup();
         
         // Track prop sync behavior
