@@ -147,6 +147,8 @@ export default function DynamicDock({ disabled = false }: DynamicDockProps) {
   
   // Process AI messages for text responses to show as toasts
   // Note: Tool call handling (add/remove tools) is done centrally in ChatContext
+  const lastProcessedIndex = useRef(0);
+
   useEffect(() => {
     if (messages.length === 0) return;
     
@@ -154,7 +156,8 @@ export default function DynamicDock({ disabled = false }: DynamicDockProps) {
     const newToasts: string[] = [];
     
     // Scan all messages for text responses and tool call confirmations
-    for (const message of messages) {
+    for (let i = lastProcessedIndex.current; i < messages.length; i++) {
+      const message = messages[i];
       if (message.role !== 'assistant' || !message.parts) continue;
       
       for (let index = 0; index < message.parts.length; index++) {
@@ -233,6 +236,7 @@ export default function DynamicDock({ disabled = false }: DynamicDockProps) {
         }
       }
     }
+    lastProcessedIndex.current = messages.length;
     
     // Batch state updates after processing (use queueMicrotask to avoid sync setState warning)
     if (newToasts.length > 0) {

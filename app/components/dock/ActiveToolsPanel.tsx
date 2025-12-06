@@ -124,7 +124,7 @@ function ActiveToolsPanelComponent({ disabled = false, onToolSelect }: ActiveToo
       >
         <Layers size={iconSize.lg} />
         <span className="text-sm font-medium">{activeTools.length}</span>
-        {isExpanded ? <ChevronDown size={iconSize.md} /> : <ChevronUp size={iconSize.md} />}
+        {isExpanded ? <ChevronUp size={iconSize.md} /> : <ChevronDown size={iconSize.md} />}
       </motion.button>
 
       {/* Expanded panel */}

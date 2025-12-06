@@ -70,10 +70,10 @@ describe('Property 6: System prompt includes all registry tools', () => {
     const toolsPrompt = generateToolsPrompt();
     const toolDefinitions = getAllToolDefinitions();
     
-    // Every tool's min and max should appear in the prompt
     for (const tool of toolDefinitions) {
-      expect(toolsPrompt).toContain(String(tool.min));
-      expect(toolsPrompt).toContain(String(tool.max));
+      // Verify the tool line contains both min and max in proper range format
+      const toolLineRegex = new RegExp(`- ${tool.id}:.*${tool.min}.*${tool.max}`);
+      expect(toolsPrompt).toMatch(toolLineRegex);
     }
   });
 
@@ -98,10 +98,10 @@ describe('Property 6: System prompt includes all registry tools', () => {
         const systemMessage = buildSystemMessage(imageState);
         const toolDefinitions = getAllToolDefinitions();
         
-        // Every tool's min and max should appear in the system message
         for (const tool of toolDefinitions) {
-          expect(systemMessage).toContain(String(tool.min));
-          expect(systemMessage).toContain(String(tool.max));
+          // Verify min and max appear together for this tool
+          const rangePattern = new RegExp(`${tool.id}.*${tool.min}.*${tool.max}`);
+          expect(systemMessage).toMatch(rangePattern);
         }
       }),
       { numRuns: 100 }
@@ -217,8 +217,8 @@ describe('Property 7: System Prompt Tool Coverage', () => {
       fc.property(imageStateArb, (imageState) => {
         const systemMessage = buildSystemMessage(imageState);
         
-        // System prompt should mention the full suite of 15 professional tools
-        expect(systemMessage).toContain('15 professional tools');
+        // System prompt should mention 15 tools
+        expect(systemMessage).toMatch(/15\s+(?:professional\s+)?tools/i);
       }),
       { numRuns: 100 }
     );

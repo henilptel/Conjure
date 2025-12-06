@@ -975,11 +975,14 @@ export class ImageEngine {
     const cachedWidth = this.cachedWidth;
     const cachedHeight = this.cachedHeight;
 
+    // Check fast path while holding lock
+    const canUseFastPath = activeTools.length === 0 && cachedPixels !== null;
+
     // Release lock before worker processing (worker has its own copy)
     this.mutex.release();
 
     // If no tools, return cached pixels directly (fast path)
-    if (activeTools.length === 0 && cachedPixels) {
+    if (canUseFastPath && cachedPixels) {
       return {
         pixels: new Uint8Array(cachedPixels),
         width: cachedWidth,
