@@ -98,6 +98,27 @@ export const transitions = {
     duration: 0.2,
     ease: easing.out,
   },
+  /** Magnetic/bouncy spring for buttons */
+  magnetic: {
+    type: 'spring' as const,
+    stiffness: 400,
+    damping: 17,
+  },
+} as const;
+
+// =============================================================================
+// Magnetic Button Hover Props
+// =============================================================================
+
+/** Framer Motion props for magnetic button effect */
+export const magneticButton = {
+  whileHover: { scale: 1.05 },
+  whileTap: { scale: 0.95 },
+  transition: {
+    type: 'spring' as const,
+    stiffness: 400,
+    damping: 17,
+  },
 } as const;
 
 // =============================================================================

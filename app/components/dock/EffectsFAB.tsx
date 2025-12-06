@@ -4,7 +4,7 @@ import { useState, useCallback } from 'react';
 import { motion } from 'framer-motion';
 import { Sliders } from 'lucide-react';
 import { useAppStore } from '@/lib/store';
-import { glassSubtle, iconSize } from '@/lib/design-tokens';
+import { glassSubtle, iconSize, magneticButton } from '@/lib/design-tokens';
 import ToolBrowser from './ToolBrowser';
 
 export interface EffectsFABProps {
@@ -38,6 +38,9 @@ export default function EffectsFAB({ disabled = false }: EffectsFABProps) {
       <motion.button
         initial={{ opacity: 0, x: 20 }}
         animate={{ opacity: 1, x: 0 }}
+        whileHover={magneticButton.whileHover}
+        whileTap={magneticButton.whileTap}
+        transition={magneticButton.transition}
         onClick={handleClick}
         disabled={disabled}
         className={`fixed right-6 top-1/2 -translate-y-1/2 z-30
@@ -45,7 +48,6 @@ export default function EffectsFAB({ disabled = false }: EffectsFABProps) {
                    ${glassSubtle.background} ${glassSubtle.blur} ${glassSubtle.border}
                    flex items-center justify-center
                    hover:bg-zinc-800/70 hover:border-white/30
-                   transition-colors
                    disabled:opacity-50 disabled:cursor-not-allowed`}
         style={{ boxShadow: glassSubtle.boxShadow }}
         aria-label="Open effects panel"

@@ -12,7 +12,7 @@ import {
 } from 'lucide-react';
 import { useAppStore } from '@/lib/store';
 import { getToolConfig, getToolIcon } from '@/lib/tools-registry';
-import { glassSubtle, glass, iconSize } from '@/lib/design-tokens';
+import { glassSubtle, glass, iconSize, magneticButton } from '@/lib/design-tokens';
 import Slider from '@/app/components/ui/Slider';
 
 /**
@@ -114,12 +114,13 @@ function ActiveToolsPanelComponent({ disabled = false, onToolSelect }: ActiveToo
         onClick={() => setIsExpanded(!isExpanded)}
         className={`flex items-center gap-2 px-3 py-2 rounded-full
                    ${glassSubtle.background} ${glassSubtle.blur} ${glassSubtle.border}
-                   text-white hover:bg-white/15 transition-colors
+                   text-white hover:bg-white/15
                    ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
         style={{ boxShadow: glassSubtle.boxShadow }}
         disabled={disabled}
-        whileHover={{ scale: 1.02 }}
-        whileTap={{ scale: 0.98 }}
+        whileHover={magneticButton.whileHover}
+        whileTap={magneticButton.whileTap}
+        transition={magneticButton.transition}
         data-testid="active-tools-toggle"
       >
         <Layers size={iconSize.lg} />

@@ -6,7 +6,7 @@ import { Activity, X, Cpu, HardDrive, Image, Zap, Clock } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { formatBytes, MAX_MEMORY_BUDGET_BYTES, MemoryUsageInfo } from '@/lib/memory-management';
 import { MAX_PROCESSING_DIMENSION, MAX_IMAGE_DIMENSION } from '@/lib/validation';
-import { glassSubtle, glass, iconSize } from '@/lib/design-tokens';
+import { glassSubtle, glass, iconSize, magneticButton } from '@/lib/design-tokens';
 
 /**
  * Extended memory stats including browser performance metrics
@@ -259,12 +259,15 @@ export default function MemoryStats({
   return (
     <>
       {/* Toggle Button - positioned in top-right */}
-      <button
+      <motion.button
         onClick={() => setIsOpen(prev => !prev)}
+        whileHover={magneticButton.whileHover}
+        whileTap={magneticButton.whileTap}
+        transition={magneticButton.transition}
         className={cn(
           "fixed top-4 right-4 z-30 p-2 rounded-full",
           glassSubtle.background, glassSubtle.blur, glassSubtle.border,
-          "hover:bg-white/15 transition-colors",
+          "hover:bg-white/15",
           "text-zinc-400 hover:text-zinc-200",
           isOpen && "text-green-400 border-green-500/30 bg-white/15"
         )}
@@ -272,7 +275,7 @@ export default function MemoryStats({
         title={`Stats for Nerds (Shift+${toggleKey.toUpperCase()})`}
       >
         <Activity className="w-4 h-4" />
-      </button>
+      </motion.button>
       
       {/* Stats Panel - positioned below toggle, height limited to effects button */}
       <AnimatePresence>

@@ -6,7 +6,7 @@ import { Sparkles, Send } from 'lucide-react';
 import { isToolUIPart, getToolName } from 'ai';
 import { useAppStore } from '@/lib/store';
 import { useChatContext } from '@/app/contexts/ChatContext';
-import { glass, iconSize } from '@/lib/design-tokens';
+import { glass, iconSize, magneticButton } from '@/lib/design-tokens';
 import GhostToast, { addToast, removeToast, ToastMessage } from './GhostToast';
 
 // ============================================================================
@@ -294,17 +294,20 @@ export default function DynamicDock({ disabled = false }: DynamicDockProps) {
         data-testid="dock-ai-input"
       />
       
-      <button
+      <motion.button
         onClick={handleAiSubmit}
         disabled={disabled || isLoading || !aiInput.trim()}
+        whileHover={magneticButton.whileHover}
+        whileTap={magneticButton.whileTap}
+        transition={magneticButton.transition}
         className="p-2 rounded-full hover:bg-white/10 
-                   transition-colors text-zinc-400 hover:text-white
+                   text-zinc-400 hover:text-white
                    disabled:opacity-50 disabled:cursor-not-allowed"
         aria-label="Send message"
         data-testid="dock-ai-send"
       >
-        <Send size={18} />
-      </button>
+        <Send size={iconSize.lg} />
+      </motion.button>
     </motion.div>
     
     {/* Ghost Toast - rendered outside dock to avoid overlap */}

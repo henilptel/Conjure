@@ -4,7 +4,7 @@ import { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { MessageSquare, X, ChevronUp } from 'lucide-react';
 import { UIMessage, isToolUIPart, getToolName } from 'ai';
-import { glass, glassSubtle, iconSize, text } from '@/lib/design-tokens';
+import { glass, glassSubtle, iconSize, text, magneticButton } from '@/lib/design-tokens';
 
 export interface ChatHistoryProps {
   messages: UIMessage[];
@@ -87,11 +87,13 @@ export default function ChatHistory({ messages, isLoading }: ChatHistoryProps) {
             initial={{ opacity: 0, scale: 0.8 }}
             animate={{ opacity: 1, scale: 1 }}
             exit={{ opacity: 0, scale: 0.8 }}
+            whileHover={magneticButton.whileHover}
+            whileTap={magneticButton.whileTap}
+            transition={magneticButton.transition}
             onClick={() => setIsOpen(true)}
             className={`fixed top-4 right-4 z-30 p-2 rounded-full
                        ${glassSubtle.background} ${glassSubtle.blur} ${glassSubtle.border}
-                       ${text.secondary} hover:text-white hover:bg-white/15
-                       transition-colors`}
+                       ${text.secondary} hover:text-white hover:bg-white/15`}
             style={{ boxShadow: glassSubtle.boxShadow }}
             aria-label="Show chat history"
             data-testid="chat-history-toggle"
