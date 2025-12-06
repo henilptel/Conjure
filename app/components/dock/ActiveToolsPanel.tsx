@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import { useAppStore } from '@/lib/store';
 import { getToolConfig, getToolIcon } from '@/lib/tools-registry';
+import { glassSubtle, glass, iconSize } from '@/lib/design-tokens';
 import Slider from '@/app/components/ui/Slider';
 
 /**
@@ -112,17 +113,18 @@ function ActiveToolsPanelComponent({ disabled = false, onToolSelect }: ActiveToo
       <motion.button
         onClick={() => setIsExpanded(!isExpanded)}
         className={`flex items-center gap-2 px-3 py-2 rounded-full
-                   bg-white/10 backdrop-blur-2xl backdrop-saturate-150 border border-white/20
+                   ${glassSubtle.background} ${glassSubtle.blur} ${glassSubtle.border}
                    text-white hover:bg-white/15 transition-colors
                    ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
+        style={{ boxShadow: glassSubtle.boxShadow }}
         disabled={disabled}
         whileHover={{ scale: 1.02 }}
         whileTap={{ scale: 0.98 }}
         data-testid="active-tools-toggle"
       >
-        <Layers size={18} />
+        <Layers size={iconSize.lg} />
         <span className="text-sm font-medium">{activeTools.length}</span>
-        {isExpanded ? <ChevronDown size={16} /> : <ChevronUp size={16} />}
+        {isExpanded ? <ChevronDown size={iconSize.md} /> : <ChevronUp size={iconSize.md} />}
       </motion.button>
 
       {/* Expanded panel */}
@@ -132,8 +134,9 @@ function ActiveToolsPanelComponent({ disabled = false, onToolSelect }: ActiveToo
             initial={{ opacity: 0, height: 0, marginTop: 0 }}
             animate={{ opacity: 1, height: 'auto', marginTop: 8 }}
             exit={{ opacity: 0, height: 0, marginTop: 0 }}
-            className="bg-white/10 backdrop-blur-2xl backdrop-saturate-150 border border-white/20 rounded-2xl
-                       overflow-hidden max-h-[60vh] overflow-y-auto"
+            className={`${glass.background} ${glass.blur} ${glass.border} rounded-2xl
+                       overflow-hidden max-h-[60vh] overflow-y-auto`}
+            style={{ boxShadow: glass.boxShadow }}
             data-testid="active-tools-list"
           >
             <div className="p-3 space-y-3 min-w-[240px]">
@@ -259,7 +262,7 @@ const ToolItem = memo(function ToolItem({
           }
         }}
       >
-        <Icon size={16} className="text-zinc-400 flex-shrink-0" />
+        <Icon size={iconSize.md} className="text-zinc-400 flex-shrink-0" />
         <span className="text-sm text-white flex-1 truncate">{tool.label}</span>
         <span className={`text-xs ${isAtDefault ? 'text-zinc-500' : 'text-zinc-300'}`}>
           {formatValue(tool.value, tool.id)}
@@ -272,7 +275,7 @@ const ToolItem = memo(function ToolItem({
           aria-label={`Remove ${tool.label}`}
           data-testid={`remove-tool-${tool.id}`}
         >
-          <X size={14} />
+          <X size={iconSize.sm} />
         </button>
       </div>
 

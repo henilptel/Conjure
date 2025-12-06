@@ -7,6 +7,7 @@ import { useShallow } from 'zustand/react/shallow';
 import Slider from '../ui/Slider';
 import { useAppStore } from '@/lib/store';
 import { getToolConfig } from '@/lib/tools-registry';
+import { glass, iconSize } from '@/lib/design-tokens';
 
 export interface ToolPanelProps {
   disabled?: boolean;
@@ -73,9 +74,10 @@ export default function ToolPanel({
           animate="animate"
           exit="exit"
           transition={{ duration: 0.2, ease: 'easeOut' }}
-          className="absolute bottom-4 md:bottom-10 left-1/2 -translate-x-1/2 z-10 
-                     backdrop-blur-md bg-black/40 border border-white/10 rounded-2xl
-                     p-3 md:p-4 min-w-[240px] md:min-w-[280px] max-w-[90vw] md:max-w-[400px]"
+          className={`absolute bottom-4 md:bottom-10 left-1/2 -translate-x-1/2 z-10 
+                     ${glass.blur} ${glass.background} ${glass.border} rounded-2xl
+                     p-3 md:p-4 min-w-[240px] md:min-w-[280px] max-w-[90vw] md:max-w-[400px]`}
+          style={{ boxShadow: glass.boxShadow }}
           data-testid="tool-panel"
         >
           <div className="flex flex-col gap-4">
@@ -106,7 +108,7 @@ export default function ToolPanel({
                   data-testid={`remove-tool-${tool.id}`}
                   disabled={disabled}
                 >
-                  <X size={16} />
+                  <X size={iconSize.md} />
                 </button>
               </div>
             ))}

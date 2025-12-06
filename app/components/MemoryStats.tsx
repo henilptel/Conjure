@@ -6,6 +6,7 @@ import { Activity, X, Cpu, HardDrive, Image, Zap, Clock } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { formatBytes, MAX_MEMORY_BUDGET_BYTES, MemoryUsageInfo } from '@/lib/memory-management';
 import { MAX_PROCESSING_DIMENSION, MAX_IMAGE_DIMENSION } from '@/lib/validation';
+import { glassSubtle, glass, iconSize } from '@/lib/design-tokens';
 
 /**
  * Extended memory stats including browser performance metrics
@@ -262,11 +263,12 @@ export default function MemoryStats({
         onClick={() => setIsOpen(prev => !prev)}
         className={cn(
           "fixed top-4 right-4 z-30 p-2 rounded-full",
-          "bg-white/10 backdrop-blur-2xl backdrop-saturate-150 border border-white/20",
+          glassSubtle.background, glassSubtle.blur, glassSubtle.border,
           "hover:bg-white/15 transition-colors",
           "text-zinc-400 hover:text-zinc-200",
           isOpen && "text-green-400 border-green-500/30 bg-white/15"
         )}
+        style={{ boxShadow: glassSubtle.boxShadow }}
         title={`Stats for Nerds (Shift+${toggleKey.toUpperCase()})`}
       >
         <Activity className="w-4 h-4" />
@@ -283,11 +285,11 @@ export default function MemoryStats({
             className={cn(
               "fixed top-14 right-4 z-30",
               "w-72 max-h-[calc(50vh-6rem)] flex flex-col",
-              "bg-white/10 backdrop-blur-2xl backdrop-saturate-150",
-              "border border-white/20 rounded-2xl",
-              "shadow-lg shadow-black/10",
+              glass.background, glass.blur, glass.border,
+              "rounded-2xl",
               "font-mono text-xs"
             )}
+            style={{ boxShadow: glass.boxShadow }}
           >
             {/* Header */}
             <div className="flex items-center justify-between px-3 py-2 border-b border-white/15">

@@ -26,6 +26,7 @@ import { useAppStore } from '@/lib/store';
 import { cn } from '@/lib/utils';
 import { formatBytes, MemoryUsageInfo } from '@/lib/memory-management';
 import { getProcessingMessage } from '@/lib/processing-messages';
+import { glassSubtle } from '@/lib/design-tokens';
 import MemoryStats from './MemoryStats';
 
 type ProcessingStatus = 'idle' | 'initializing' | 'processing' | 'complete' | 'error';
@@ -737,11 +738,11 @@ export default function ImageProcessor() {
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: -10, scale: 0.95 }}
             transition={{ type: 'spring', damping: 25, stiffness: 300 }}
-            className="absolute top-4 left-1/2 -translate-x-1/2 z-20 
+            className={`absolute top-4 left-1/2 -translate-x-1/2 z-20 
                        flex items-center gap-2 px-3 py-1.5
-                       bg-white/10 backdrop-blur-2xl backdrop-saturate-150
-                       border border-white/20 
-                       rounded-full shadow-lg shadow-black/10"
+                       ${glassSubtle.background} ${glassSubtle.blur} ${glassSubtle.border}
+                       rounded-full`}
+            style={{ boxShadow: glassSubtle.boxShadow }}
           >
             <div className="w-3.5 h-3.5 rounded-full border-[1.5px] border-white/20 border-t-white animate-spin" />
             <span className="text-xs font-medium text-white/90">
@@ -828,11 +829,10 @@ export default function ImageProcessor() {
           
           {/* Zoom Controls - Apple-style glassmorphism matching other UI elements */}
           <div 
-            className="absolute bottom-4 right-4 flex items-center
-                       bg-white/10 backdrop-blur-2xl backdrop-saturate-150
-                       border border-white/20 
-                       rounded-full shadow-lg shadow-black/10
-                       select-none"
+            className={`absolute bottom-4 right-4 flex items-center
+                       ${glassSubtle.background} ${glassSubtle.blur} ${glassSubtle.border}
+                       rounded-full select-none`}
+            style={{ boxShadow: glassSubtle.boxShadow }}
             data-testid="zoom-controls"
           >
             {/* Zoom Out Button */}
@@ -894,7 +894,8 @@ export default function ImageProcessor() {
             initial={{ opacity: 0, y: -10 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -10 }}
-            className="absolute top-6 left-1/2 -translate-x-1/2 z-10 flex items-center gap-2 px-3 py-1.5 bg-white/10 backdrop-blur-2xl backdrop-saturate-150 border border-white/20 rounded-full shadow-lg shadow-black/10"
+            className={`absolute top-6 left-1/2 -translate-x-1/2 z-10 flex items-center gap-2 px-3 py-1.5 ${glassSubtle.background} ${glassSubtle.blur} ${glassSubtle.border} rounded-full`}
+            style={{ boxShadow: glassSubtle.boxShadow }}
             data-testid="compare-mode-indicator"
           >
             <Eye className="w-4 h-4 text-white/80" />
@@ -913,10 +914,10 @@ export default function ImageProcessor() {
           className={cn(
             "absolute bottom-4 left-4 md:bottom-6 md:left-6",
             "flex items-center gap-2 px-3 py-1.5 rounded-full",
-            "backdrop-blur-2xl backdrop-saturate-150 border border-white/20 text-sm shadow-lg shadow-black/10",
+            glassSubtle.blur, glassSubtle.border, "text-sm",
             isProcessing
-              ? "bg-white/5 text-zinc-500 cursor-not-allowed"
-              : "bg-white/10 text-zinc-200 hover:bg-white/15 transition-colors cursor-pointer"
+              ? "bg-zinc-900/50 text-zinc-500 cursor-not-allowed"
+              : `${glassSubtle.background} text-zinc-200 hover:bg-zinc-800/70 transition-colors cursor-pointer`
           )}
         >
           <RotateCcw className="w-4 h-4" />

@@ -2,6 +2,7 @@
 
 import { useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { glassSubtle, text } from '@/lib/design-tokens';
 
 /**
  * Interface for toast messages displayed above the dock
@@ -77,14 +78,15 @@ function ToastItem({
       onClick={handleDismiss}
       onKeyDown={handleKeyDown}
       tabIndex={0}
-      className="px-4 py-2.5 bg-white/10 backdrop-blur-2xl backdrop-saturate-150 border border-white/20 
-                 rounded-full shadow-lg shadow-black/10 cursor-pointer hover:bg-white/15 
-                 transition-colors max-w-sm focus:outline-none focus:ring-2 focus:ring-white/40"
+      className={`px-4 py-2.5 ${glassSubtle.background} ${glassSubtle.blur} ${glassSubtle.border}
+                 rounded-full cursor-pointer hover:bg-zinc-800/70 
+                 transition-colors max-w-sm focus:outline-none focus:ring-2 focus:ring-white/40`}
+      style={{ boxShadow: glassSubtle.boxShadow }}
       role="alert"
       aria-live="polite"
       data-testid={`ghost-toast-${message.id}`}
     >
-      <p className="text-sm text-zinc-200">{message.text}</p>
+      <p className={`text-sm ${text.secondary}`}>{message.text}</p>
     </motion.div>
   );
 }

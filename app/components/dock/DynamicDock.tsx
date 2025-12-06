@@ -6,6 +6,7 @@ import { Sparkles, Send } from 'lucide-react';
 import { isToolUIPart, getToolName } from 'ai';
 import { useAppStore } from '@/lib/store';
 import { useChatContext } from '@/app/contexts/ChatContext';
+import { glass, iconSize } from '@/lib/design-tokens';
 import GhostToast, { addToast, removeToast, ToastMessage } from './GhostToast';
 
 // ============================================================================
@@ -257,10 +258,10 @@ export default function DynamicDock({ disabled = false }: DynamicDockProps) {
       initial={{ opacity: 0, y: 50 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.2 }}
-      className="fixed bottom-8 left-1/2 -translate-x-1/2 z-40
+      className={`fixed bottom-8 left-1/2 -translate-x-1/2 z-40
                  h-14 px-4 flex items-center gap-3
-                 bg-white/10 backdrop-blur-2xl backdrop-saturate-150 border border-white/20 
-                 rounded-full shadow-lg shadow-black/10"
+                 ${glass.background} ${glass.blur} ${glass.border} rounded-full`}
+      style={{ boxShadow: glass.boxShadow }}
       data-testid="dynamic-dock"
       role="toolbar"
       aria-label="AI editing tools"
@@ -268,7 +269,7 @@ export default function DynamicDock({ disabled = false }: DynamicDockProps) {
       <div className="p-2 rounded-full bg-gradient-to-br from-violet-500/20 to-indigo-500/20 
                       backdrop-blur-sm border border-white/10">
         <Sparkles 
-          size={16} 
+          size={iconSize.md} 
           className={`text-violet-400 ${isLoading ? 'animate-spin' : ''}`} 
         />
       </div>
