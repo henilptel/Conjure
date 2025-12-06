@@ -1,6 +1,6 @@
 'use client';
 
-import { ChangeEvent, useId, useState, useEffect, useRef, useCallback } from 'react';
+import { ChangeEvent, useId, useState, useEffect, useRef, useCallback, KeyboardEvent } from 'react';
 import { useDebouncedCallback } from '@/lib/hooks';
 
 /** Default debounce delay in milliseconds for slider onChange callbacks */
@@ -17,6 +17,10 @@ export interface SliderProps {
   disabled?: boolean;
   id?: string;
   debounceMs?: number; // Configurable debounce delay, default 50ms
+  /** Default value for reset on double-click */
+  defaultValue?: number;
+  /** Optional formatter for display value (e.g., "100%" or "45°") */
+  formatValue?: (value: number) => string;
 }
 
 /**
@@ -42,6 +46,8 @@ export default function Slider({
   disabled = false,
   id,
   debounceMs = DEFAULT_DEBOUNCE_MS,
+  defaultValue,
+  formatValue,
 }: SliderProps) {
   const generatedId = useId();
   const inputId = id ?? `slider-${generatedId}`;
@@ -49,10 +55,17 @@ export default function Slider({
   // Local state for immediate visual feedback
   const [localValue, setLocalValue] = useState(value);
   
-  // Track whether user is actively dragging using React state for proper state management
-  // This allows prop synchronization to resume immediately when dragging ends
+  // State for inline numeric editing
+  const [isEditing, setIsEditing] = useState(false);
+  const [inputValue, setInputValue] = useState('');
+  const inputRef = useRef<HTMLInputElement>(null);
+  
+  // Track whether user is actively dragging using both state and ref
+  // State: controls prop synchronization blocking
+  // Ref: provides stable reference for callbacks to avoid stale-closure bugs
   // Requirements: 5.3, 5.4
   const [isDragging, setIsDragging] = useState(false);
+  const isDraggingRef = useRef(false);
   
   // Track the last committed value to avoid duplicate commits
   const lastCommittedValueRef = useRef(value);
@@ -72,16 +85,17 @@ export default function Slider({
 
   const handleChange = (event: ChangeEvent<HTMLInputElement>) => {
     const newValue = Number(event.target.value);
+    isDraggingRef.current = true;
     setIsDragging(true);
     setLocalValue(newValue);           // Immediate visual update
     debouncedOnChange(newValue);       // Debounced callback for preview
   };
   
   // Handle pointer/mouse up to mark end of drag interaction and commit final value
-  // Uses synchronous state update without setTimeout for immediate prop sync
+  // Uses ref instead of state in deps to avoid stale-closure bugs
   // Requirements: 5.1, 5.2, 5.3, 5.4
   const handlePointerUp = useCallback(() => {
-    if (!isDragging) return;
+    if (!isDraggingRef.current) return;
     
     const currentValue = localValue;
     
@@ -98,18 +112,125 @@ export default function Slider({
       onCommit(currentValue);
     }
     
-    // Synchronous state update - no setTimeout delay
-    // This immediately allows prop synchronization to resume
+    // Update both ref and state - ref for callback logic, state for prop sync
+    isDraggingRef.current = false;
     setIsDragging(false);
-  }, [isDragging, localValue, debouncedOnChange, onChange, onCommit]);
+  }, [localValue, debouncedOnChange, onChange, onCommit]);
+
+  /**
+   * Handle double-click to reset slider to default value
+   * Requirements: UX enhancement for quick reset
+   */
+  const handleDoubleClick = useCallback(() => {
+    if (disabled || defaultValue === undefined) return;
+    
+    // Update local state immediately
+    setLocalValue(defaultValue);
+    
+    // Notify parent of the change
+    onChange(defaultValue);
+    
+    // Commit the reset value
+    if (onCommit && defaultValue !== lastCommittedValueRef.current) {
+      lastCommittedValueRef.current = defaultValue;
+      onCommit(defaultValue);
+    }
+  }, [disabled, defaultValue, onChange, onCommit]);
+
+  /**
+   * Handle click on value label to enter edit mode
+   */
+  const handleValueClick = useCallback(() => {
+    if (disabled) return;
+    setInputValue(String(localValue));
+    setIsEditing(true);
+  }, [disabled, localValue]);
+
+  /**
+   * Commit the edited value and exit edit mode
+   */
+  const commitEditedValue = useCallback(() => {
+    const parsed = parseFloat(inputValue);
+    if (!isNaN(parsed)) {
+      // Clamp value to min/max range
+      const clamped = Math.max(min, Math.min(max, Math.round(parsed)));
+      setLocalValue(clamped);
+      onChange(clamped);
+      if (onCommit && clamped !== lastCommittedValueRef.current) {
+        lastCommittedValueRef.current = clamped;
+        onCommit(clamped);
+      }
+    }
+    setIsEditing(false);
+  }, [inputValue, min, max, onChange, onCommit]);
+
+  /**
+   * Handle keyboard events in the edit input
+   */
+  const handleInputKeyDown = useCallback((e: KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      commitEditedValue();
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      setIsEditing(false);
+    }
+  }, [commitEditedValue]);
+
+  /**
+   * Focus input when entering edit mode
+   */
+  useEffect(() => {
+    if (isEditing && inputRef.current) {
+      inputRef.current.focus();
+      inputRef.current.select();
+    }
+  }, [isEditing]);
+
+  // Format the display value
+  const displayValue = formatValue ? formatValue(localValue) : String(localValue);
 
   return (
     <div className="flex flex-col gap-2 w-full">
       <label
         htmlFor={inputId}
-        className="text-sm font-medium text-zinc-300"
+        className="text-sm font-medium text-zinc-300 flex items-center gap-1"
       >
-        {label}: {localValue}
+        <span>{label}:</span>
+        {isEditing ? (
+          <input
+            ref={inputRef}
+            type="number"
+            value={inputValue}
+            onChange={(e) => setInputValue(e.target.value)}
+            onBlur={commitEditedValue}
+            onKeyDown={handleInputKeyDown}
+            min={min}
+            max={max}
+            step={1}
+            className="w-16 px-1.5 py-0.5 bg-white/5 border border-white/20 rounded 
+                       text-white text-sm text-center
+                       focus:border-white/40 focus:outline-none focus:ring-1 focus:ring-white/20
+                       [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+            aria-label={`Edit ${label} value`}
+          />
+        ) : (
+          <span
+            onClick={handleValueClick}
+            className="cursor-pointer hover:text-white transition-colors select-none"
+            title="Click to edit value"
+            role="button"
+            tabIndex={disabled ? -1 : 0}
+            onKeyDown={(e) => {
+              if (!disabled && (e.key === 'Enter' || e.key === ' ')) {
+                e.preventDefault();
+                handleValueClick();
+              }
+            }}
+          >
+            {displayValue}
+          </span>
+        )}
       </label>
       <input
         id={inputId}
@@ -120,12 +241,14 @@ export default function Slider({
         onChange={handleChange}
         onPointerUp={handlePointerUp}
         onPointerLeave={handlePointerUp}
+        onDoubleClick={handleDoubleClick}
         disabled={disabled}
         className={`w-full h-2 rounded-lg appearance-none cursor-pointer ${
           disabled
             ? 'bg-zinc-700 cursor-not-allowed'
             : 'bg-zinc-700 accent-zinc-100'
         }`}
+        title={defaultValue !== undefined ? 'Double-click to reset' : undefined}
       />
     </div>
   );

@@ -4,6 +4,7 @@ import { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { MessageSquare, X, ChevronUp } from 'lucide-react';
 import { UIMessage, isToolUIPart, getToolName } from 'ai';
+import { glass, glassSubtle, iconSize, text, magneticButton } from '@/lib/design-tokens';
 
 export interface ChatHistoryProps {
   messages: UIMessage[];
@@ -86,15 +87,18 @@ export default function ChatHistory({ messages, isLoading }: ChatHistoryProps) {
             initial={{ opacity: 0, scale: 0.8 }}
             animate={{ opacity: 1, scale: 1 }}
             exit={{ opacity: 0, scale: 0.8 }}
+            whileHover={magneticButton.whileHover}
+            whileTap={magneticButton.whileTap}
+            transition={magneticButton.transition}
             onClick={() => setIsOpen(true)}
-            className="fixed top-4 right-4 z-30 p-2 rounded-full
-                       bg-white/10 backdrop-blur-2xl backdrop-saturate-150 border border-white/20
-                       text-zinc-300 hover:text-white hover:bg-white/15
-                       transition-colors shadow-lg shadow-black/10"
+            className={`fixed top-4 right-4 z-30 p-2 rounded-full
+                       ${glassSubtle.background} ${glassSubtle.blur} ${glassSubtle.border}
+                       ${text.secondary} hover:text-white hover:bg-white/15`}
+            style={{ boxShadow: glassSubtle.boxShadow }}
             aria-label="Show chat history"
             data-testid="chat-history-toggle"
           >
-            <MessageSquare size={16} />
+            <MessageSquare size={iconSize.md} />
           </motion.button>
         )}
       </AnimatePresence>
@@ -107,9 +111,10 @@ export default function ChatHistory({ messages, isLoading }: ChatHistoryProps) {
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: -10, scale: 0.95 }}
             transition={{ duration: 0.2 }}
-            className="fixed top-14 right-4 z-30 w-72 max-h-[calc(50vh-6rem)] flex flex-col
-                       bg-white/10 backdrop-blur-2xl backdrop-saturate-150 border border-white/20
-                       rounded-2xl shadow-lg shadow-black/10 overflow-hidden"
+            className={`fixed top-14 right-4 z-30 w-72 max-h-[calc(50vh-6rem)] flex flex-col
+                       ${glass.background} ${glass.blur} ${glass.border}
+                       rounded-2xl overflow-hidden`}
+            style={{ boxShadow: glass.boxShadow }}
             data-testid="chat-history-panel"
           >
             {/* Header */}
@@ -120,14 +125,14 @@ export default function ChatHistory({ messages, isLoading }: ChatHistoryProps) {
                 className="p-1 rounded-full hover:bg-white/10 text-zinc-400 hover:text-white transition-colors"
                 aria-label="Close chat history"
               >
-                <X size={16} />
+                <X size={iconSize.md} />
               </button>
             </div>
             
             {/* Messages */}
             <div
               ref={scrollRef}
-              className="p-3 space-y-3 flex-1 overflow-y-auto"
+              className="p-3 space-y-3 flex-1 overflow-y-auto glass-scroll"
             >
               {visibleMessages.map((message) => {
                 const text = getMessageText(message);
@@ -160,7 +165,7 @@ export default function ChatHistory({ messages, isLoading }: ChatHistoryProps) {
               className="w-full py-2 border-t border-white/15 text-zinc-400 hover:text-white
                          hover:bg-white/10 transition-colors flex items-center justify-center gap-1 text-xs"
             >
-              <ChevronUp size={14} />
+              <ChevronUp size={iconSize.sm} />
               Collapse
             </button>
           </motion.div>

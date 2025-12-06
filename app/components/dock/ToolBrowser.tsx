@@ -22,6 +22,7 @@ import {
 } from 'lucide-react';
 import { useAppStore } from '@/lib/store';
 import { getAllToolDefinitions, type ToolDefinition } from '@/lib/tools-registry';
+import { glass, glassSubtle, glassInteractive, transitions, iconSize } from '@/lib/design-tokens';
 import Slider from '@/app/components/ui/Slider';
 
 // ============================================================================
@@ -96,7 +97,7 @@ export default function ToolBrowser({ isOpen, onClose, onToolSelect, initialCate
     if (activeToolIds.has(tool.id)) {
       setExpandedToolId(expandedToolId === tool.id ? null : tool.id);
     } else {
-      addTool([{ name: tool.id }]);
+      addTool([{ name: tool.id }]); // It needs to be name and not id 
       setExpandedToolId(tool.id);
       onToolSelect?.(tool.id);
     }
@@ -134,8 +135,9 @@ export default function ToolBrowser({ isOpen, onClose, onToolSelect, initialCate
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
+            transition={{ duration: 0.2 }}
             onClick={onClose}
-            className="fixed inset-0 bg-black/20 z-40"
+            className="fixed inset-0 bg-black/30 z-40"
             data-testid="tool-browser-backdrop"
           />
           
@@ -144,7 +146,7 @@ export default function ToolBrowser({ isOpen, onClose, onToolSelect, initialCate
             initial={{ x: '100%' }}
             animate={{ x: 0 }}
             exit={{ x: '100%' }}
-            transition={{ type: 'spring', damping: 30, stiffness: 400 }}
+            transition={transitions.slideRight}
             className="fixed right-0 top-0 bottom-0 z-50 flex"
             data-testid="tool-browser"
           >
@@ -164,14 +166,15 @@ export default function ToolBrowser({ isOpen, onClose, onToolSelect, initialCate
                     whileTap={{ scale: 0.95 }}
                     className={`relative p-3 rounded-xl transition-all duration-200
                                ${isActive 
-                                 ? 'bg-white/15 backdrop-blur-xl border border-white/25 shadow-lg' 
-                                 : 'bg-white/5 backdrop-blur-xl border border-white/10 hover:bg-white/10 hover:border-white/15'
+                                 ? 'bg-white/15 backdrop-blur-xl border border-white/30 shadow-lg' 
+                                 : 'bg-white/5 backdrop-blur-xl border border-white/10 hover:bg-white/10 hover:border-white/20'
                                }`}
+                    style={isActive ? { boxShadow: glassSubtle.boxShadow } : undefined}
                     aria-label={category.label}
                     data-testid={`category-tab-${category.id}`}
                   >
                     <CategoryIcon 
-                      size={20} 
+                      size={iconSize.xl} 
                       className={isActive ? 'text-white' : 'text-zinc-400'} 
                     />
                     {activeCount > 0 && (
@@ -186,13 +189,19 @@ export default function ToolBrowser({ isOpen, onClose, onToolSelect, initialCate
               })}
             </div>
 
-            {/* Main panel */}
+            {/* Main panel - VisionOS glass with light edges */}
             <div
-              className="w-72 h-full bg-zinc-900/95 border-l border-white/20
-                         flex flex-col overflow-hidden"
+              className={`relative w-72 h-full ${glass.background} ${glass.blur}
+                         border-l border-white/20 flex flex-col overflow-hidden`}
+              style={{ boxShadow: glass.boxShadow }}
             >
-              {/* Header */}
-              <div className="p-4 border-b border-white/10">
+              {/* Header with top light edge */}
+              <div 
+                className="p-4 border-b border-white/10"
+                style={{
+                  background: 'linear-gradient(180deg, rgba(255,255,255,0.05) 0%, transparent 100%)'
+                }}
+              >
                 <div className="flex items-center justify-between mb-1">
                   <motion.h2 
                     key={activeCategory}
@@ -209,7 +218,7 @@ export default function ToolBrowser({ isOpen, onClose, onToolSelect, initialCate
                     aria-label="Close"
                     data-testid="tool-browser-close"
                   >
-                    <X size={18} />
+                    <X size={iconSize.lg} />
                   </button>
                 </div>
                 <p className="text-xs text-zinc-500">
@@ -218,29 +227,20 @@ export default function ToolBrowser({ isOpen, onClose, onToolSelect, initialCate
               </div>
 
               {/* Tools list */}
-              <div className="flex-1 overflow-y-auto p-3 space-y-2">
-                <AnimatePresence mode="popLayout">
-                  {categoryTools.map((tool, index) => (
-                    <motion.div
-                      key={tool.id}
-                      initial={{ opacity: 0, x: 20 }}
-                      animate={{ opacity: 1, x: 0 }}
-                      exit={{ opacity: 0, x: -20 }}
-                      transition={{ delay: index * 0.03 }}
-                    >
-                      <ToolCard
-                        tool={tool}
-                        icon={TOOL_ICONS[tool.id] || Sparkles}
-                        isActive={activeToolIds.has(tool.id)}
-                        isExpanded={expandedToolId === tool.id}
-                        currentValue={activeToolsMap.get(tool.id)?.value}
-                        onClick={() => handleToolClick(tool)}
-                        onRemove={(e) => handleRemoveTool(tool.id, e)}
-                        onSliderChange={(value) => handleSliderChange(tool.id, value)}
-                      />
-                    </motion.div>
-                  ))}
-                </AnimatePresence>
+              <div className="flex-1 overflow-y-auto p-3 space-y-2 glass-scroll">
+                {categoryTools.map((tool) => (
+                  <ToolCard
+                    key={tool.id}
+                    tool={tool}
+                    icon={TOOL_ICONS[tool.id] || Sparkles}
+                    isActive={activeToolIds.has(tool.id)}
+                    isExpanded={expandedToolId === tool.id}
+                    currentValue={activeToolsMap.get(tool.id)?.value}
+                    onClick={() => handleToolClick(tool)}
+                    onRemove={(e) => handleRemoveTool(tool.id, e)}
+                    onSliderChange={(value) => handleSliderChange(tool.id, value)}
+                  />
+                ))}
               </div>
 
               {/* Quick tip footer */}
@@ -285,21 +285,23 @@ function ToolCard({
 }: ToolCardProps) {
   const displayValue = currentValue ?? tool.defaultValue;
 
-  const formatValue = (value: number): string => {
+  const formatValue = (value: number, includeInvert: boolean = true): string => {
     if (tool.id === 'rotate') return `${value}°`;
-    if (tool.id === 'invert') return value > 0 ? 'On' : 'Off';
+    if (includeInvert && tool.id === 'invert') return value > 0 ? 'On' : 'Off';
     if (['brightness', 'saturation', 'hue'].includes(tool.id)) return `${value}%`;
     return String(value);
   };
 
+  const createSliderFormatter = () => (value: number): string => formatValue(value, false);
+
   return (
-    <motion.div
-      layout
-      className={`rounded-xl overflow-hidden transition-colors duration-200
+    <div
+      className={`rounded-xl overflow-hidden transition-all duration-150
                  ${isActive
-                   ? 'bg-white/10 border border-white/20'
-                   : 'bg-white/5 border border-white/5 hover:border-white/10 hover:bg-white/10'
+                   ? 'bg-white/10 border border-white/25'
+                   : 'bg-white/5 border border-white/[0.08] hover:border-white/15 hover:bg-white/[0.08]'
                  }`}
+      style={isActive ? { boxShadow: glassInteractive.activeBoxShadow } : undefined}
       data-testid={`tool-card-${tool.id}`}
     >
       <div
@@ -340,28 +342,20 @@ function ToolCard({
         )}
       </div>
 
-      <AnimatePresence>
-        {isActive && isExpanded && (
-          <motion.div
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: 'auto', opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            transition={{ duration: 0.2 }}
-            className="overflow-hidden"
-          >
-            <div className="px-3 pb-3">
-              <Slider
-                value={displayValue}
-                min={tool.min}
-                max={tool.max}
-                onChange={onSliderChange}
-                label={tool.label}
-                id={`browser-slider-${tool.id}`}
-              />
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </motion.div>
+      {isActive && isExpanded && (
+        <div className="px-3 pb-3">
+          <Slider
+            value={displayValue}
+            min={tool.min}
+            max={tool.max}
+            onChange={onSliderChange}
+            label={tool.label}
+            id={`browser-slider-${tool.id}`}
+            defaultValue={tool.defaultValue}
+            formatValue={createSliderFormatter(tool.id)}
+          />
+        </div>
+      )}
+    </div>
   );
 }

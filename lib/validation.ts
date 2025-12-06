@@ -100,7 +100,7 @@ export function validateImageDimensions(
   width: number,
   height: number
 ): DimensionValidationResult {
-  if (width <= 0 || height <= 0) {
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
     return {
       isValid: false,
       error: 'Invalid image dimensions.',

@@ -118,6 +118,9 @@ class WorkerManager {
 
     this.worker.onerror = (event) => {
       console.error('Worker error:', event);
+      // Reset state so reinitialization can be attempted
+      this.isInitialized = false;
+      this.initPromise = null;
       // Clear timeouts and reject all pending requests
       for (const [, { reject, timeoutId }] of this.pendingRequests) {
         clearTimeout(timeoutId);
@@ -136,10 +139,13 @@ class WorkerManager {
       this.worker!.onmessage = (event: MessageEvent<WorkerResponse>) => {
         if (event.data.type === 'ready') {
           // Worker is ready, send init message
+          // Create a fresh ArrayBuffer copy for transfer - this copy gets neutered
+          // but cachedWasmBytes remains intact for future worker re-initializations
+          const wasmBytesCopy = new Uint8Array(cachedWasmBytes!).buffer;
           this.worker!.postMessage({
             type: 'init',
-            wasmBytes: cachedWasmBytes,
-          }, [cachedWasmBytes!.slice(0)]); // Transfer a copy
+            wasmBytes: wasmBytesCopy,
+          }, [wasmBytesCopy]);
         } else if (event.data.type === 'init-complete') {
           clearTimeout(timeout);
           this.worker!.onmessage = originalHandler;
@@ -911,7 +917,7 @@ export class ImageEngine {
                 };
                 
                 // Update memory tracking
-                this.memoryTracker.record('processedResult', this.lastProcessedResult.pixels.byteLength);
+                this.memoryTracker.record(MEMORY_BUFFER_NAMES.PROCESSED_RESULT, this.lastProcessedResult.pixels.byteLength);
                 
                 // Release lock after callback completes
                 releaseMutex();
@@ -969,11 +975,14 @@ export class ImageEngine {
     const cachedWidth = this.cachedWidth;
     const cachedHeight = this.cachedHeight;
 
+    // Check fast path while holding lock
+    const canUseFastPath = activeTools.length === 0 && cachedPixels !== null;
+
     // Release lock before worker processing (worker has its own copy)
     this.mutex.release();
 
     // If no tools, return cached pixels directly (fast path)
-    if (activeTools.length === 0 && cachedPixels) {
+    if (canUseFastPath && cachedPixels) {
       return {
         pixels: new Uint8Array(cachedPixels),
         width: cachedWidth,
@@ -986,18 +995,24 @@ export class ImageEngine {
       // Process in worker (non-blocking)
       const result = await this.workerManager.process(sourceBytes, activeTools);
 
-      // Update memoization cache with worker result
-      const currentSignature = this.computeToolsSignature(activeTools);
-      this.lastToolsSignature = currentSignature;
-      this.lastProcessedResult = {
-        pixels: new Uint8Array(result.pixels),
-        width: result.width,
-        height: result.height,
-        originalBytes: sourceBytes,
-      };
-      
-      // Update memory tracking
-      this.memoryTracker.record('processedResult', this.lastProcessedResult.pixels.byteLength);
+      // Re-acquire lock to safely update memoization cache
+      await this.mutex.acquire();
+      try {
+        // Update memoization cache with worker result
+        const currentSignature = this.computeToolsSignature(activeTools);
+        this.lastToolsSignature = currentSignature;
+        this.lastProcessedResult = {
+          pixels: new Uint8Array(result.pixels),
+          width: result.width,
+          height: result.height,
+          originalBytes: sourceBytes,
+        };
+        
+        // Update memory tracking
+        this.memoryTracker.record(MEMORY_BUFFER_NAMES.PROCESSED_RESULT, this.lastProcessedResult.pixels.byteLength);
+      } finally {
+        this.mutex.release();
+      }
 
       return {
         pixels: result.pixels,

@@ -30,12 +30,21 @@ export default function Home() {
         <ImageProcessor />
       </div>
 
-      {/* Layer 2: Floating logo/header */}
-      <div className="absolute top-6 left-6 md:top-8 md:left-8 z-10 select-none mix-blend-difference flex items-center gap-3">
-        <h1 className="text-2xl md:text-3xl font-[family-name:var(--font-syne)] font-bold text-white/90">
+      {/* Layer 2: Floating logo/header - removed mix-blend-difference for accessibility */}
+      <div 
+        className="absolute top-6 left-6 md:top-8 md:left-8 z-10 select-none flex items-center gap-3"
+        role="banner"
+      >
+        <h1 
+          className="text-2xl md:text-3xl font-[family-name:var(--font-syne)] font-bold text-white drop-shadow-[0_2px_4px_rgba(0,0,0,0.8)] contrast-more:text-white contrast-more:drop-shadow-none contrast-more:bg-black/80 contrast-more:px-2 contrast-more:rounded"
+          aria-label="Conjure - AI Image Editor"
+        >
           Conjure
         </h1>
-        <span className="px-2.5 py-0.5 rounded-full border border-white/20 bg-white/5 text-[10px] md:text-xs font-medium tracking-wider text-white/70 uppercase font-sans backdrop-blur-sm mt-1">
+        <span 
+          className="px-2.5 py-0.5 rounded-full border border-white/30 bg-black/40 text-[10px] md:text-xs font-medium tracking-wider text-white uppercase font-sans backdrop-blur-sm mt-1 drop-shadow-[0_1px_2px_rgba(0,0,0,0.6)] contrast-more:bg-black contrast-more:border-white contrast-more:text-white"
+          aria-label="Preview version"
+        >
           Preview
         </span>
       </div>

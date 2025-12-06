@@ -20,3 +20,52 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+
+/* Custom scrollbar - VisionOS glass style */
+.glass-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.15) transparent;
+}
+
+.glass-scroll::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.glass-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.glass-scroll::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 3px;
+}
+
+.glass-scroll::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.25);
+}
+
+/* Hide scrollbar until hover */
+.glass-scroll-hidden {
+  scrollbar-width: none;
+}
+
+.glass-scroll-hidden::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
+
+.glass-scroll-hidden:hover {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.15) transparent;
+}
+
+.glass-scroll-hidden:hover::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.glass-scroll-hidden:hover::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 3px;
+}

@@ -4,8 +4,8 @@
  */
 
 import * as fc from 'fast-check';
-import React, { memo } from 'react';
-import { render, cleanup } from '@testing-library/react';
+import React, { memo, Profiler } from 'react';
+import { render, cleanup, screen, fireEvent } from '@testing-library/react';
 import ActiveToolsPanel from '@/app/components/dock/ActiveToolsPanel';
 import type { ActiveTool, ToolName } from '@/lib/types';
 import { TOOL_CONFIGS } from '@/lib/types';
@@ -76,33 +76,33 @@ describe('Property 6: Memoization Prevents Re-render', () => {
           
           let renderCount = 0;
           
-          // Create a wrapper that tracks renders
-          const RenderTracker = ({ children }: { children: React.ReactNode }) => {
+          // Create a wrapper component that tracks renders of ActiveToolsPanel
+          const TrackedActiveToolsPanel = React.memo(function TrackedActiveToolsPanel(props: { disabled: boolean }) {
             renderCount++;
-            return <>{children}</>;
-          };
+            return <ActiveToolsPanel {...props} />;
+          });
           
-          // Create a parent component that can trigger re-renders
-          const Parent = ({ triggerRender }: { triggerRender: number }) => {
+          // Create a parent component that can trigger re-renders via state
+          const Parent = function Parent({ triggerRender }: { triggerRender: number }) {
             // This value changes but ActiveToolsPanel props don't
             void triggerRender;
-            return (
-              <RenderTracker>
-                <ActiveToolsPanel disabled={disabled} />
-              </RenderTracker>
-            );
+            return <TrackedActiveToolsPanel disabled={disabled} />;
           };
           
           // Initial render
           const { rerender } = render(<Parent triggerRender={0} />);
-          const initialRenderCount = renderCount;
           
-          // Re-render parent with different triggerRender but same ActiveToolsPanel props
+          // Get the count after initial render (should be 1)
+          const initialCallCount = renderCount;
+          expect(initialCallCount).toBeGreaterThanOrEqual(1);
+          
+          // Re-render with different triggerRender - Parent will re-render,
+          // but TrackedActiveToolsPanel should not because its props (disabled) are the same
           rerender(<Parent triggerRender={1} />);
           
-          // The RenderTracker should have rendered twice (parent re-rendered)
-          // but ActiveToolsPanel should have been memoized
-          expect(renderCount).toBe(initialRenderCount + 1);
+          // Since TrackedActiveToolsPanel is memoized and its props haven't changed,
+          // renderCount should stay the same
+          expect(renderCount).toBe(initialCallCount);
         }
       ),
       { numRuns: 100 }
@@ -137,11 +137,11 @@ describe('Property 6: Memoization Prevents Re-render', () => {
     );
   });
 
-  it('memoized component re-renders when onToolSelect prop changes', () => {
-    fc.assert(
-      fc.property(
+  it('memoized component re-renders when onToolSelect prop changes', async () => {
+    await fc.assert(
+      fc.asyncProperty(
         nonEmptyUniqueToolsArb,
-        (tools) => {
+        async (tools) => {
           cleanup();
           useAppStore.setState({ activeTools: tools });
           
@@ -153,39 +153,27 @@ describe('Property 6: Memoization Prevents Re-render', () => {
             <ActiveToolsPanel onToolSelect={callback1} />
           );
           
-          // Re-render with different callback - should trigger re-render
-          // because the function reference changed
+          // Expand the panel first to access tool items
+          const toggleButton = screen.getByTestId('active-tools-toggle');
+          fireEvent.click(toggleButton);
+          
+          // Re-render with different callback
           rerender(<ActiveToolsPanel onToolSelect={callback2} />);
           
-          // Both callbacks should be different references
-          expect(callback1).not.toBe(callback2);
+          // Simulate tool selection and verify the new callback is called
+          const firstTool = tools[0];
+          // Corrected selector and ensure expanded
+          const toolElement = await screen.findByTestId(`tool-item-${firstTool.id}`);
+          fireEvent.click(toolElement);
+          
+          // callback2 should be called, not callback1
+          expect(callback1).not.toHaveBeenCalled();
+          expect(callback2).toHaveBeenCalledWith(firstTool.id);
         }
       ),
       { numRuns: 100 }
     );
   });
 
-  it('shallow comparison works correctly for props', () => {
-    fc.assert(
-      fc.property(
-        fc.boolean(),
-        (disabled) => {
-          cleanup();
-          useAppStore.setState({ activeTools: [] });
-          
-          // Props with same values should be considered equal by shallow comparison
-          const props1 = { disabled };
-          const props2 = { disabled };
-          
-          // Shallow equality check (what React.memo uses by default)
-          const arePropsEqual = Object.keys(props1).every(
-            key => props1[key as keyof typeof props1] === props2[key as keyof typeof props2]
-          );
-          
-          expect(arePropsEqual).toBe(true);
-        }
-      ),
-      { numRuns: 100 }
-    );
-  });
+
 });

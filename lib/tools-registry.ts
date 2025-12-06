@@ -24,6 +24,8 @@ import {
   Focus,
   RotateCw,
   Waves,
+  Rainbow,
+  ArrowLeftRight,
 } from 'lucide-react';
 import { EFFECT_ORDER, TOOL_EXECUTORS } from './tools-definitions';
 
@@ -138,7 +140,7 @@ export const TOOL_REGISTRY: Record<string, ToolDefinition> = {
     max: 200,
     defaultValue: 100,
     execute: TOOL_EXECUTORS.hue,
-    icon: Sun,
+    icon: Rainbow,
   },
 
   invert: {
@@ -148,7 +150,7 @@ export const TOOL_REGISTRY: Record<string, ToolDefinition> = {
     max: 1,
     defaultValue: 0,
     execute: TOOL_EXECUTORS.invert,
-    icon: CircleDot,
+    icon: ArrowLeftRight,
   },
 
   // Category B: Detail & Texture Tools

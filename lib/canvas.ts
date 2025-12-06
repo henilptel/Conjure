@@ -14,6 +14,271 @@
 export const MAX_CANVAS_WIDTH = 800;
 export const MAX_CANVAS_HEIGHT = 600;
 
+/**
+ * Transform state for canvas zoom and pan operations
+ */
+export interface CanvasTransform {
+  /** Zoom level (0.1 to 5.0) */
+  scale: number;
+  /** Horizontal pan offset in pixels */
+  x: number;
+  /** Vertical pan offset in pixels */
+  y: number;
+}
+
+/**
+ * Default transform state (no zoom, no pan)
+ */
+export const DEFAULT_TRANSFORM: CanvasTransform = {
+  scale: 1,
+  x: 0,
+  y: 0,
+};
+
+/**
+ * Zoom limits for canvas navigation
+ */
+export const ZOOM_LIMITS = {
+  min: 0.1,
+  max: 5.0,
+  step: 0.1,
+};
+
+/**
+ * Represents a touch point for gesture handling
+ */
+export interface TouchPoint {
+  x: number;
+  y: number;
+  id: number;
+}
+
+/**
+ * State for tracking pinch-to-zoom gestures
+ */
+export interface PinchState {
+  /** Initial distance between two touch points */
+  initialDistance: number;
+  /** Initial center point between the two touches */
+  initialCenter: { x: number; y: number };
+  /** Scale at the start of the pinch */
+  initialScale: number;
+  /** Transform at the start of the pinch */
+  initialTransform: CanvasTransform;
+}
+
+/**
+ * Calculates the distance between two touch points
+ */
+export function getTouchDistance(touch1: TouchPoint, touch2: TouchPoint): number {
+  const dx = touch2.x - touch1.x;
+  const dy = touch2.y - touch1.y;
+  return Math.sqrt(dx * dx + dy * dy);
+}
+
+/**
+ * Calculates the center point between two touch points
+ */
+export function getTouchCenter(touch1: TouchPoint, touch2: TouchPoint): { x: number; y: number } {
+  return {
+    x: (touch1.x + touch2.x) / 2,
+    y: (touch1.y + touch2.y) / 2,
+  };
+}
+
+/**
+ * Converts screen coordinates to canvas-relative coordinates,
+ * accounting for CSS transforms on the canvas element.
+ * 
+ * This is critical for accurate zoom focal point calculations when
+ * the canvas has been scaled/translated via CSS transforms.
+ * 
+ * @param screenX - Screen X coordinate (e.g., event.clientX)
+ * @param screenY - Screen Y coordinate (e.g., event.clientY)
+ * @param containerRect - Bounding rect of the container element
+ * @param canvasWidth - Intrinsic canvas width (canvas.width)
+ * @param canvasHeight - Intrinsic canvas height (canvas.height)
+ * @param transform - Current CSS transform applied to canvas
+ * @returns Coordinates relative to the untransformed canvas
+ */
+export function screenToCanvasCoords(
+  screenX: number,
+  screenY: number,
+  containerRect: DOMRect,
+  canvasWidth: number,
+  canvasHeight: number,
+  transform: CanvasTransform
+): { x: number; y: number } {
+  // Get position relative to container center
+  const containerCenterX = containerRect.left + containerRect.width / 2;
+  const containerCenterY = containerRect.top + containerRect.height / 2;
+  
+  // Screen position relative to container center
+  const relX = screenX - containerCenterX;
+  const relY = screenY - containerCenterY;
+  
+  // The canvas is centered in the container, and CSS transform is:
+  // translate(transform.x, transform.y) scale(transform.scale)
+  // with transform-origin: center center
+  // 
+  // So to get the position on the untransformed canvas:
+  // 1. Remove the translation offset
+  // 2. Remove the scale
+  // 3. Add the canvas center to get canvas-relative coords
+  
+  const canvasX = (relX - transform.x) / transform.scale + canvasWidth / 2;
+  const canvasY = (relY - transform.y) / transform.scale + canvasHeight / 2;
+  
+  return { x: canvasX, y: canvasY };
+}
+
+/**
+ * Calculates a transform for a pinch-to-zoom gesture.
+ * The zoom is centered on the midpoint between the two touch points.
+ * 
+ * @param pinchState - Initial state when pinch started
+ * @param currentDistance - Current distance between touch points
+ * @param currentCenter - Current center between touch points
+ * @param containerRect - Container bounding rect
+ * @param canvasWidth - Canvas intrinsic width
+ * @param canvasHeight - Canvas intrinsic height
+ * @returns New transform state
+ */
+export function calculatePinchTransform(
+  pinchState: PinchState,
+  currentDistance: number,
+  currentCenter: { x: number; y: number },
+  containerRect: DOMRect,
+  canvasWidth: number,
+  canvasHeight: number
+): CanvasTransform {
+  // Guard against division by zero when computing scale ratio
+  const EPSILON = 1e-6;
+  if (pinchState.initialDistance < EPSILON) {
+    // Return the initial transform if initial distance is too small
+    return pinchState.initialTransform;
+  }
+  
+  // Calculate scale change
+  const scaleRatio = currentDistance / pinchState.initialDistance;
+  const newScale = Math.max(
+    ZOOM_LIMITS.min,
+    Math.min(ZOOM_LIMITS.max, pinchState.initialScale * scaleRatio)
+  );
+  
+  // Get the pinch center relative to container center
+  const containerCenterX = containerRect.left + containerRect.width / 2;
+  const containerCenterY = containerRect.top + containerRect.height / 2;
+  
+  const initialCenterRel = {
+    x: pinchState.initialCenter.x - containerCenterX,
+    y: pinchState.initialCenter.y - containerCenterY,
+  };
+  
+  const currentCenterRel = {
+    x: currentCenter.x - containerCenterX,
+    y: currentCenter.y - containerCenterY,
+  };
+  
+  // The image point that was under the initial pinch center
+  const imageX = (initialCenterRel.x - pinchState.initialTransform.x) / pinchState.initialScale;
+  const imageY = (initialCenterRel.y - pinchState.initialTransform.y) / pinchState.initialScale;
+  
+  // Calculate new translation to keep that image point under the current pinch center
+  // Also account for any panning (difference between initial and current center)
+  const newX = currentCenterRel.x - imageX * newScale;
+  const newY = currentCenterRel.y - imageY * newScale;
+  
+  return {
+    scale: newScale,
+    x: newX,
+    y: newY,
+  };
+}
+
+/**
+ * Calculates a new transform after a zoom operation, maintaining the cursor focal point.
+ * 
+ * The zoom is centered on the cursor position, meaning the image point under the cursor
+ * before zooming will remain under the cursor after zooming.
+ * 
+ * @param currentTransform - Current transform state
+ * @param delta - Zoom delta (positive = zoom in, negative = zoom out)
+ * @param cursorX - Cursor X position relative to canvas
+ * @param cursorY - Cursor Y position relative to canvas
+ * @param canvasWidth - Canvas width in pixels
+ * @param canvasHeight - Canvas height in pixels
+ * @returns New transform with updated scale and offsets
+ */
+export function calculateZoomTransform(
+  currentTransform: CanvasTransform,
+  delta: number,
+  cursorX: number,
+  cursorY: number,
+  canvasWidth: number,
+  canvasHeight: number
+): CanvasTransform {
+  const { scale: oldScale, x: oldX, y: oldY } = currentTransform;
+  
+  // Calculate new scale with bounds clamping
+  const scaleFactor = delta > 0 ? 1.1 : 0.9;
+  const newScale = Math.max(
+    ZOOM_LIMITS.min,
+    Math.min(ZOOM_LIMITS.max, oldScale * scaleFactor)
+  );
+  
+  // If scale didn't change (at limits), return current transform
+  if (newScale === oldScale) {
+    return currentTransform;
+  }
+  
+  // Calculate the center of the canvas
+  const centerX = canvasWidth / 2;
+  const centerY = canvasHeight / 2;
+  
+  // The cursor position relative to the canvas center (before transform)
+  const cursorFromCenterX = cursorX - centerX;
+  const cursorFromCenterY = cursorY - centerY;
+  
+  // The image point under the cursor (accounting for current transform)
+  // With CSS transform origin at center, the transform is: translate(x, y) scale(s)
+  // So a point P on screen maps to image point: (P - center - translate) / scale + center
+  const imageX = (cursorFromCenterX - oldX) / oldScale;
+  const imageY = (cursorFromCenterY - oldY) / oldScale;
+  
+  // After zoom, we want the same image point to be under the cursor
+  // cursorFromCenter = newX + imageX * newScale
+  // newX = cursorFromCenter - imageX * newScale
+  const newX = cursorFromCenterX - imageX * newScale;
+  const newY = cursorFromCenterY - imageY * newScale;
+  
+  return {
+    scale: newScale,
+    x: newX,
+    y: newY,
+  };
+}
+
+/**
+ * Calculates a new transform after a pan operation.
+ * 
+ * @param currentTransform - Current transform state
+ * @param deltaX - Horizontal pan delta in pixels
+ * @param deltaY - Vertical pan delta in pixels
+ * @returns New transform with updated offsets
+ */
+export function calculatePanTransform(
+  currentTransform: CanvasTransform,
+  deltaX: number,
+  deltaY: number
+): CanvasTransform {
+  return {
+    scale: currentTransform.scale,
+    x: currentTransform.x + deltaX,
+    y: currentTransform.y + deltaY,
+  };
+}
+
 export interface CanvasDimensions {
   width: number;
   height: number;
@@ -123,12 +388,16 @@ export function calculateScaledDimensions(
  * - Reuses offscreen canvas and ImageData when dimensions match
  * - Updates cache in-place with new resources when dimensions change
  * 
+ * The canvas is sized to fit the image at its base scaled dimensions.
+ * Zoom/pan is handled via CSS transforms on the canvas element.
+ * 
  * @param ctx - The 2D rendering context of the target canvas
  * @param canvas - The canvas element (for resizing)
  * @param pixels - RGBA pixel data as Uint8Array
  * @param width - Image width
  * @param height - Image height
  * @param cache - Cached rendering resources (will be mutated)
+ * @param _transform - Unused, kept for API compatibility (zoom/pan via CSS)
  */
 export function renderImageToCanvas(
   ctx: CanvasRenderingContext2D,
@@ -136,20 +405,23 @@ export function renderImageToCanvas(
   pixels: Uint8Array,
   width: number,
   height: number,
-  cache: CanvasRenderCache
+  cache: CanvasRenderCache,
+  _transform?: CanvasTransform
 ): void {
-  // Calculate scaled dimensions
+  // Calculate base scaled dimensions (fit-to-screen size)
   const scaled = calculateScaledDimensions(width, height);
   
-  // Set canvas size to scaled dimensions (only if changed)
+  // Set canvas size to base scaled dimensions (zoom handled via CSS)
   if (canvas.width !== scaled.width || canvas.height !== scaled.height) {
     canvas.width = scaled.width;
     canvas.height = scaled.height;
   }
   
   // Check if we need to create/resize offscreen canvas
+  // Offscreen canvas holds the full-resolution image data
   const needsNewOffscreen = 
     !cache.offscreenCanvas ||
+    !cache.imageData ||
     cache.cachedWidth !== width ||
     cache.cachedHeight !== height;
   
@@ -185,8 +457,15 @@ export function renderImageToCanvas(
   // Put image data on offscreen canvas using cached context
   cache.offscreenCtx.putImageData(imageData, 0, 0);
   
-  // Draw scaled image to main canvas
-  ctx.drawImage(cache.offscreenCanvas as CanvasImageSource, 0, 0, scaled.width, scaled.height);
+  // Clear the canvas before drawing
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  
+  // Draw the image at base scaled size (zoom/pan via CSS transform)
+  ctx.drawImage(
+    cache.offscreenCanvas as CanvasImageSource,
+    0, 0, width, height,                    // source rect (full image)
+    0, 0, scaled.width, scaled.height       // dest rect (base scaled size)
+  );
 }
 
 /**

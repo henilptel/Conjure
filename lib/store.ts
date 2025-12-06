@@ -46,6 +46,7 @@ export interface AppState {
   imageState: ImageStateData;
   processingStatus: ProcessingStatus;
   isCompareMode: boolean;
+  processingMessage: string;
   
   // Preview state for CSS filter optimization
   previewState: PreviewState;
@@ -57,6 +58,7 @@ export interface AppState {
   setImageState: (state: Partial<ImageStateData>) => void;
   setProcessingStatus: (status: ProcessingStatus) => void;
   setCompareMode: (enabled: boolean) => void;
+  setProcessingMessage: (msg: string) => void;
   resetTools: () => void;
   
   // Preview actions for CSS filter optimization
@@ -94,6 +96,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   imageState: defaultImageState,
   processingStatus: 'idle',
   isCompareMode: false,
+  processingMessage: '',
   previewState: defaultPreviewState,
   
   // Actions
@@ -156,6 +159,14 @@ export const useAppStore = create<AppState>((set, get) => ({
    */
   setCompareMode: (enabled: boolean) => {
     set({ isCompareMode: enabled });
+  },
+  
+  /**
+   * Set processing message for dynamic feedback
+   * Requirements: 3.1
+   */
+  setProcessingMessage: (msg: string) => {
+    set({ processingMessage: msg });
   },
   
   /**

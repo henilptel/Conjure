@@ -37,7 +37,7 @@ export function getValidToolNames(): string[] {
  * Requirements: 7.3, 4.1, 4.2, 4.3
  */
 export function buildSystemMessage(imageContext: ImageState): string {
-  const dimensionsText = imageContext.hasImage && imageContext.width && imageContext.height
+  const dimensionsText = imageContext.hasImage && imageContext.width != null && imageContext.height != null
     ? `${imageContext.width}x${imageContext.height} pixels`
     : 'No image loaded';
 
@@ -128,6 +128,14 @@ function extractMessageContent(msg: Record<string, unknown>): string {
  * Parses and validates the request body.
  * Returns the parsed data or throws an error if invalid.
  * Supports both legacy message format (content) and AI SDK v5 format (parts).
+ * 
+ * **Filtering behavior**: Messages with empty string content are intentionally
+ * dropped and not included in the returned array. This prevents sending
+ * meaningless messages to the AI and can occur with:
+ * - Tool-only assistant messages (no text parts)
+ * - Malformed messages with missing content
+ * - Messages where all text parts are empty
+ * A warning is logged when messages are dropped for debugging purposes.
  */
 export function parseRequestBody(body: unknown): { messages: ChatMessage[]; imageContext: ImageState } {
   if (!body || typeof body !== 'object') {
@@ -141,6 +149,7 @@ export function parseRequestBody(body: unknown): { messages: ChatMessage[]; imag
   }
 
   // Validate and convert message structure
+  // Note: Messages with empty content are intentionally dropped (see JSDoc)
   const parsedMessages: ChatMessage[] = [];
   for (const msg of messages) {
     if (!msg || typeof msg !== 'object') {
@@ -153,11 +162,16 @@ export function parseRequestBody(body: unknown): { messages: ChatMessage[]; imag
     }
     
     const content = extractMessageContent(msgObj);
-    if (content) {
+    // Explicitly check for empty string - messages with no text content are dropped
+    // This handles tool-only assistant messages and malformed messages gracefully
+    if (content !== '') {
       parsedMessages.push({
         role: role as 'user' | 'assistant' | 'system',
         content,
       });
+    } else {
+      // Log warning for debugging - helps identify unexpected empty messages
+      console.warn(`[parseRequestBody] Dropping ${role} message with empty content`);
     }
   }
 

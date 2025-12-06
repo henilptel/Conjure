@@ -4,6 +4,7 @@ import { useState, useCallback } from 'react';
 import { motion } from 'framer-motion';
 import { Sliders } from 'lucide-react';
 import { useAppStore } from '@/lib/store';
+import { glassSubtle, iconSize, magneticButton } from '@/lib/design-tokens';
 import ToolBrowser from './ToolBrowser';
 
 export interface EffectsFABProps {
@@ -37,19 +38,22 @@ export default function EffectsFAB({ disabled = false }: EffectsFABProps) {
       <motion.button
         initial={{ opacity: 0, x: 20 }}
         animate={{ opacity: 1, x: 0 }}
+        whileHover={magneticButton.whileHover}
+        whileTap={magneticButton.whileTap}
+        transition={magneticButton.transition}
         onClick={handleClick}
         disabled={disabled}
-        className="fixed right-6 top-1/2 -translate-y-1/2 z-30
+        className={`fixed right-6 top-1/2 -translate-y-1/2 z-30
                    w-12 h-12 rounded-full
-                   bg-white/10 backdrop-blur-2xl backdrop-saturate-150 border border-white/20
+                   ${glassSubtle.background} ${glassSubtle.blur} ${glassSubtle.border}
                    flex items-center justify-center
-                   hover:bg-white/15 hover:border-white/30
-                   transition-colors
-                   disabled:opacity-50 disabled:cursor-not-allowed"
+                   hover:bg-zinc-800/70 hover:border-white/30
+                   disabled:opacity-50 disabled:cursor-not-allowed`}
+        style={{ boxShadow: glassSubtle.boxShadow }}
         aria-label="Open effects panel"
         data-testid="effects-fab"
       >
-        <Sliders size={20} className="text-zinc-300" />
+        <Sliders size={iconSize.xl} className="text-zinc-300" />
         
         {activeCount > 0 && (
           <span className="absolute -top-1 -right-1 w-5 h-5 rounded-full
