@@ -38,6 +38,8 @@ export interface PreviewState {
   draggingToolId: string | null;
   /** Preview tool values (may differ from committed activeTools during drag) */
   previewTools: ActiveTool[];
+  /** Snapshot of activeTools at preview start, for restoration on cancel */
+  originalActiveTools: ActiveTool[];
 }
 
 /**
@@ -98,6 +100,7 @@ const defaultPreviewState: PreviewState = {
   isDragging: false,
   draggingToolId: null,
   previewTools: [],
+  originalActiveTools: [],
 };
 
 /**
@@ -223,6 +226,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   /**
    * Start preview mode when user begins dragging a slider.
    * Copies current activeTools to previewTools for CSS-based preview.
+   * Also captures a snapshot of activeTools for restoration on cancel.
    * Idempotent: only starts if not already in preview mode.
    */
   startPreview: (toolId: string) => {
@@ -230,11 +234,15 @@ export const useAppStore = create<AppState>((set, get) => ({
     // Only start preview if not already dragging (idempotent)
     if (previewState.isDragging) return;
     
+    // Capture snapshot of activeTools for potential restoration on cancel
+    const snapshot = activeTools.map(tool => ({ ...tool }));
+    
     set({
       previewState: {
         isDragging: true,
         draggingToolId: toolId,
-        previewTools: activeTools.map(tool => ({ ...tool })),
+        previewTools: snapshot,
+        originalActiveTools: snapshot.map(tool => ({ ...tool })),
       },
     });
   },
@@ -284,13 +292,26 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
   
   /**
-   * Cancel preview and revert to original activeTools.
+   * Cancel preview and revert activeTools to the state before drag started.
+   * Restores from the snapshot captured in startPreview.
    * Used when user cancels interaction (e.g., Escape key).
    */
   cancelPreview: () => {
-    set({
-      previewState: defaultPreviewState,
-    });
+    const { previewState } = get();
+    
+    // Restore activeTools from the snapshot captured at preview start
+    // This reverts any changes made by updateToolValue during the drag
+    if (previewState.isDragging && previewState.originalActiveTools.length > 0) {
+      set({
+        activeTools: previewState.originalActiveTools.map(tool => ({ ...tool })),
+        previewState: defaultPreviewState,
+      });
+    } else {
+      // No active preview or empty snapshot, just clear preview state
+      set({
+        previewState: defaultPreviewState,
+      });
+    }
   },
   
   // History actions for undo/redo functionality

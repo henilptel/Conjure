@@ -684,18 +684,22 @@ export default function ImageProcessor() {
 
   // Cleanup on unmount
   useEffect(() => {
-    // Capture ref values at effect setup time
-    const engine = engineRef.current;
-    const cache = canvasRenderCacheRef.current;
-    
+    // Return cleanup function that reads refs when it runs (at unmount time)
+    // This ensures we dispose the actual instances, even if they were created
+    // later (e.g., ImageEngine is created in handleFileSelect after mount)
     return () => {
-      if (engine) {
+      const currentEngine = engineRef.current;
+      const currentCache = canvasRenderCacheRef.current;
+      
+      if (currentEngine) {
         // Use async dispose for thread-safe cleanup
         // Fire-and-forget since we're unmounting
-        engine.disposeAsync();
+        currentEngine.disposeAsync();
       }
       // Clear canvas render cache to free memory
-      clearCanvasRenderCache(cache);
+      if (currentCache) {
+        clearCanvasRenderCache(currentCache);
+      }
     };
   }, []);
 

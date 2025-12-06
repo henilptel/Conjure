@@ -114,6 +114,7 @@ export default function DynamicDock({ disabled = false }: DynamicDockProps) {
     if (messages.length === 0) {
       processedMessageIds.current.clear();
       processedIdsOrder.current = [];
+      lastProcessedIndex.current = 0;
     }
   }, [messages.length]);
   
