@@ -130,7 +130,7 @@ export default function ChatHistory({ messages, isLoading }: ChatHistoryProps) {
             {/* Messages */}
             <div
               ref={scrollRef}
-              className="p-3 space-y-3 flex-1 overflow-y-auto"
+              className="p-3 space-y-3 flex-1 overflow-y-auto glass-scroll"
             >
               {visibleMessages.map((message) => {
                 const text = getMessageText(message);

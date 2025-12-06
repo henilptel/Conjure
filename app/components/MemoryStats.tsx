@@ -305,7 +305,7 @@ export default function MemoryStats({
               </button>
             </div>
             
-            <div className="overflow-y-auto flex-1 p-3 space-y-4">
+            <div className="overflow-y-auto flex-1 p-3 space-y-4 glass-scroll">
                 {/* Performance Metrics */}
                 <Section title="Performance" icon={<Zap className="w-3 h-3" />}>
                   <StatRow label="FPS" value={`${stats.performanceMetrics.fps}`} />

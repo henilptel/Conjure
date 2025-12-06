@@ -135,7 +135,7 @@ function ActiveToolsPanelComponent({ disabled = false, onToolSelect }: ActiveToo
             animate={{ opacity: 1, height: 'auto', marginTop: 8 }}
             exit={{ opacity: 0, height: 0, marginTop: 0 }}
             className={`${glass.background} ${glass.blur} ${glass.border} rounded-2xl
-                       overflow-hidden max-h-[60vh] overflow-y-auto`}
+                       overflow-hidden max-h-[60vh] overflow-y-auto glass-scroll`}
             style={{ boxShadow: glass.boxShadow }}
             data-testid="active-tools-list"
           >

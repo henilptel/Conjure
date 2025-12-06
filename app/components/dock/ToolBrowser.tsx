@@ -227,7 +227,7 @@ export default function ToolBrowser({ isOpen, onClose, onToolSelect, initialCate
               </div>
 
               {/* Tools list */}
-              <div className="flex-1 overflow-y-auto p-3 space-y-2">
+              <div className="flex-1 overflow-y-auto p-3 space-y-2 glass-scroll">
                 {categoryTools.map((tool) => (
                   <ToolCard
                     key={tool.id}
