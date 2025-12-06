@@ -59,14 +59,25 @@ function ActiveToolsPanelComponent({ disabled = false, onToolSelect }: ActiveToo
   const activeTools = useAppStore((state) => state.activeTools);
   const updateToolValue = useAppStore((state) => state.updateToolValue);
   const removeTool = useAppStore((state) => state.removeTool);
+  const startPreview = useAppStore((state) => state.startPreview);
+  const commitPreview = useAppStore((state) => state.commitPreview);
   
   const [isExpanded, setIsExpanded] = useState(false);
   const [expandedToolId, setExpandedToolId] = useState<string | null>(null);
 
   // Handle slider change - directly updates tool value for WASM processing
+  // Requirements: undo-redo 3.3
   const handleSliderChange = useCallback((toolId: string, value: number) => {
+    // Start preview mode if not already started (for history tracking)
+    startPreview(toolId);
     updateToolValue(toolId, value);
-  }, [updateToolValue]);
+  }, [updateToolValue, startPreview]);
+
+  // Handle slider commit - records history when slider is released
+  // Requirements: undo-redo 3.3
+  const handleSliderCommit = useCallback((toolId: string, value: number) => {
+    commitPreview(toolId, value);
+  }, [commitPreview]);
 
   const handleRemoveTool = useCallback((toolId: string, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -165,6 +176,7 @@ function ActiveToolsPanelComponent({ disabled = false, onToolSelect }: ActiveToo
                       onClick={() => handleToolClick(tool.id)}
                       onRemove={(e) => handleRemoveTool(tool.id, e)}
                       onSliderChange={(value) => handleSliderChange(tool.id, value)}
+                      onSliderCommit={(value) => handleSliderCommit(tool.id, value)}
                     />
                   ))}
                 </div>
@@ -184,6 +196,7 @@ function ActiveToolsPanelComponent({ disabled = false, onToolSelect }: ActiveToo
                       onClick={() => handleToolClick(tool.id)}
                       onRemove={(e) => handleRemoveTool(tool.id, e)}
                       onSliderChange={(value) => handleSliderChange(tool.id, value)}
+                      onSliderCommit={(value) => handleSliderCommit(tool.id, value)}
                     />
                   ))}
                 </div>
@@ -212,6 +225,7 @@ interface ToolItemProps {
   onClick: () => void;
   onRemove: (e: React.MouseEvent) => void;
   onSliderChange: (value: number) => void;
+  onSliderCommit?: (value: number) => void;
 }
 
 const formatValue = (value: number, toolId: string): string => {
@@ -240,6 +254,7 @@ const ToolItem = memo(function ToolItem({
   onClick,
   onRemove,
   onSliderChange,
+  onSliderCommit,
 }: ToolItemProps) {
   const toolConfig = getToolConfig(tool.id);
   const isAtDefault = toolConfig && tool.value === toolConfig.defaultValue;
@@ -296,6 +311,7 @@ const ToolItem = memo(function ToolItem({
                 min={tool.min}
                 max={tool.max}
                 onChange={onSliderChange}
+                onCommit={onSliderCommit}
                 label={tool.label}
                 disabled={disabled}
                 id={`panel-slider-${tool.id}`}

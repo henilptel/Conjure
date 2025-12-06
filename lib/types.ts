@@ -237,3 +237,36 @@ export function updateToolValue(tools: ActiveTool[], toolId: string, newValue: n
 export function removeTool(tools: ActiveTool[], toolId: string): ActiveTool[] {
   return tools.filter(tool => tool.id !== toolId);
 }
+
+/**
+ * History entry representing a snapshot of activeTools at a point in time
+ * Requirements: 3.1, 3.2, 3.3
+ */
+export interface HistoryEntry {
+  /** Snapshot of activeTools array */
+  activeTools: ActiveTool[];
+  /** Timestamp for debugging/display purposes */
+  timestamp: number;
+}
+
+/**
+ * History state for undo/redo functionality
+ * Requirements: 3.1, 3.2, 3.3
+ */
+export interface HistoryState {
+  /** Stack of history entries */
+  entries: HistoryEntry[];
+  /** Current position in history (index into entries array) */
+  pointer: number;
+  /** Maximum number of entries to retain */
+  maxSize: number;
+}
+
+/**
+ * Default history state when no history exists
+ */
+export const DEFAULT_HISTORY_STATE: HistoryState = {
+  entries: [],
+  pointer: -1,
+  maxSize: 50,
+};

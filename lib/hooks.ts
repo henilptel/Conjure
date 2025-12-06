@@ -142,3 +142,61 @@ export function useDebouncedCallback<T extends (...args: any[]) => void>(
 
   return debouncedFn;
 }
+
+
+/**
+ * Hook for undo/redo keyboard shortcuts
+ * Listens for Ctrl+Z (undo) and Ctrl+Shift+Z (redo)
+ * Respects platform conventions (Cmd on macOS)
+ * Only activates when an image is loaded and no input is focused
+ * 
+ * Requirements: 1.1, 2.1
+ */
+export function useUndoRedoKeyboard(): void {
+  const hasImage = useAppStore((state) => state.imageState.hasImage);
+  const undo = useAppStore((state) => state.undo);
+  const redo = useAppStore((state) => state.redo);
+  const canUndo = useAppStore((state) => state.canUndo);
+  const canRedo = useAppStore((state) => state.canRedo);
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      // Only activate when image is loaded
+      if (!hasImage) return;
+      
+      // Don't trigger when typing in an input field
+      if (isInputFocused()) return;
+      
+      // Check for Ctrl+Z or Cmd+Z (undo) and Ctrl+Shift+Z or Cmd+Shift+Z (redo)
+      const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
+      const modifierKey = isMac ? event.metaKey : event.ctrlKey;
+      
+      if (!modifierKey) return;
+      
+      // Check for Z key
+      if (event.key.toLowerCase() === 'z') {
+        if (event.shiftKey) {
+          // Redo: Ctrl+Shift+Z or Cmd+Shift+Z
+          if (canRedo()) {
+            event.preventDefault();
+            redo();
+          }
+        } else {
+          // Undo: Ctrl+Z or Cmd+Z
+          if (canUndo()) {
+            event.preventDefault();
+            undo();
+          }
+        }
+      }
+    };
+
+    // Add global keyboard listener
+    window.addEventListener('keydown', handleKeyDown);
+
+    // Cleanup on unmount
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [hasImage, undo, redo, canUndo, canRedo]);
+}

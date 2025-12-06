@@ -156,7 +156,7 @@ describe('Preview State Management', () => {
   });
 
   describe('commitPreview', () => {
-    it('property: applies previewTools to activeTools', () => {
+    it('property: commits current activeTools and records history', () => {
       fc.assert(
         fc.property(
           arbActiveTools.filter(t => t.length > 0),
@@ -167,16 +167,20 @@ describe('Preview State Management', () => {
             
             const toolId = tools[0].id;
             useAppStore.getState().startPreview(toolId);
-            useAppStore.getState().updatePreviewValue(toolId, newValue);
             
-            const previewToolsBefore = [...useAppStore.getState().previewState.previewTools];
+            // Update activeTools directly (as the slider does)
+            useAppStore.getState().updateToolValue(toolId, newValue);
+            
+            const activeToolsBefore = useAppStore.getState().activeTools.map(t => ({ ...t }));
             
             useAppStore.getState().commitPreview();
             
             const state = useAppStore.getState();
             
-            // activeTools should match previewTools before commit
-            expect(state.activeTools).toEqual(previewToolsBefore);
+            // activeTools should be preserved (with the updated value)
+            expect(state.activeTools).toEqual(activeToolsBefore);
+            // History should be recorded
+            expect(state.history.entries.length).toBeGreaterThan(0);
           }
         ),
         { numRuns: 20 }
