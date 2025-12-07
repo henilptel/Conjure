@@ -587,6 +587,9 @@ export class ImageEngine {
   /** Cached decoded RGBA pixel data - avoids re-decoding on every process() */
   private cachedPixels: Uint8Array | null = null;
   
+  /** Release function for cachedPixels pooled buffer */
+  private cachedPixelsRelease: (() => void) | null = null;
+  
   /** Cached image width (may be downscaled for processing) */
   private cachedWidth: number = 0;
   
@@ -607,6 +610,9 @@ export class ImageEngine {
   
   /** Cached processed result for memoization */
   private lastProcessedResult: ImageData | null = null;
+  
+  /** Release function for lastProcessedResult pooled buffer */
+  private lastProcessedResultRelease: (() => void) | null = null;
 
   /** Worker manager instance for off-thread processing */
   private workerManager: WorkerManager | null = null;
@@ -691,6 +697,11 @@ export class ImageEngine {
    * Called by idle cleanup or manually when memory pressure is high.
    */
   clearMemoizationCache(): void {
+    // Release pooled buffer before clearing reference
+    if (this.lastProcessedResultRelease) {
+      this.lastProcessedResultRelease();
+      this.lastProcessedResultRelease = null;
+    }
     this.lastToolsSignature = '';
     this.lastProcessedResult = null;
     this.memoryTracker.clear(MEMORY_BUFFER_NAMES.PROCESSED_RESULT);
@@ -917,8 +928,17 @@ export class ImageEngine {
             // Write to RGBA format for canvas and cache
             image.write(MagickFormat.Rgba, (pixels) => {
               try {
-                // Cache the decoded pixels (Requirements: slider-performance 2.1)
-                this.cachedPixels = new Uint8Array(pixels);
+                // Release any previous cached pixels buffer before acquiring new one
+                if (this.cachedPixelsRelease) {
+                  this.cachedPixelsRelease();
+                  this.cachedPixelsRelease = null;
+                }
+                
+                // Cache the decoded pixels using buffer pool (Requirements: slider-performance 2.1)
+                // This reuses buffers instead of allocating new ones for each image
+                const { view, release } = this.bufferPool.acquireWithData(pixels);
+                this.cachedPixels = view;
+                this.cachedPixelsRelease = release;
                 this.cachedWidth = targetWidth;
                 this.cachedHeight = targetHeight;
                 
@@ -931,8 +951,10 @@ export class ImageEngine {
                 // Release lock after callback completes
                 releaseMutex();
                 
+                // Return a view of the cached pixels (zero-copy when enabled)
+                // Caller should treat as read-only
                 resolve({
-                  pixels: new Uint8Array(pixels),
+                  pixels: this.zeroCopyEnabled ? view : new Uint8Array(pixels),
                   width: targetWidth,
                   height: targetHeight,
                   originalBytes: this.sourceBytes!,
@@ -1079,29 +1101,40 @@ export class ImageEngine {
             // Write to RGBA for canvas rendering
             image.write(MagickFormat.Rgba, (pixels) => {
               try {
-                const result: ImageData = {
-                  pixels: new Uint8Array(pixels),
-                  width: image.width,
-                  height: image.height,
-                  originalBytes: sourceBytes,
-                };
+                // Release any previous processed result buffer before acquiring new one
+                if (this.lastProcessedResultRelease) {
+                  this.lastProcessedResultRelease();
+                  this.lastProcessedResultRelease = null;
+                }
+                
+                // Use buffer pool for the cached result (memoization)
+                // This reuses buffers instead of allocating new ones
+                const { view: cachedView, release } = this.bufferPool.acquireWithData(pixels);
                 
                 // Cache the result for memoization
                 this.lastToolsSignature = currentSignature;
                 this.lastProcessedResult = {
-                  pixels: new Uint8Array(pixels), // Store a copy
+                  pixels: cachedView,
                   width: image.width,
                   height: image.height,
                   originalBytes: sourceBytes,
                 };
+                this.lastProcessedResultRelease = release;
                 
                 // Update memory tracking
-                this.memoryTracker.record(MEMORY_BUFFER_NAMES.PROCESSED_RESULT, this.lastProcessedResult.pixels.byteLength);
+                this.memoryTracker.record(MEMORY_BUFFER_NAMES.PROCESSED_RESULT, cachedView.byteLength);
                 
                 // Release lock after callback completes
                 releaseMutex();
                 
-                resolve(result);
+                // Return: when zero-copy is enabled, return view into cached buffer
+                // Caller should treat as read-only
+                resolve({
+                  pixels: this.zeroCopyEnabled ? cachedView : new Uint8Array(pixels),
+                  width: image.width,
+                  height: image.height,
+                  originalBytes: sourceBytes,
+                });
               } catch (writeCallbackError) {
                 handleError(writeCallbackError, 'write callback');
               }
@@ -1238,7 +1271,19 @@ export class ImageEngine {
    */
   private clearState(): void {
     this.sourceBytes = null;
+    
+    // Release pooled buffers back to the pool before clearing references
+    if (this.cachedPixelsRelease) {
+      this.cachedPixelsRelease();
+      this.cachedPixelsRelease = null;
+    }
     this.cachedPixels = null;
+    
+    if (this.lastProcessedResultRelease) {
+      this.lastProcessedResultRelease();
+      this.lastProcessedResultRelease = null;
+    }
+    
     this.cachedWidth = 0;
     this.cachedHeight = 0;
     this.originalWidth = 0;
