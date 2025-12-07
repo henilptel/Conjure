@@ -222,6 +222,41 @@ export class BufferPool {
     });
   }
   
+  /**
+   * Pre-allocate buffers for common sizes to avoid cold-start allocations.
+   * Call this on app init with expected image sizes.
+   * 
+   * @param sizes - Array of buffer sizes in bytes to pre-allocate
+   * 
+   * @example
+   * // Pre-allocate for 1080p and 4K RGBA images
+   * pool.warmPool([
+   *   1920 * 1080 * 4,  // ~8MB for 1080p
+   *   3840 * 2160 * 4,  // ~33MB for 4K
+   * ]);
+   */
+  warmPool(sizes: number[]): void {
+    for (const size of sizes) {
+      // Check if we already have a buffer of this size
+      const existing = this.pool.find(b => b.size === size && !b.inUse);
+      if (existing) continue;
+      
+      // Check if adding this would exceed limits
+      if (this.getTotalPoolSize() + size > this.config.maxPoolSize) continue;
+      if (this.pool.length >= this.config.maxBufferCount) continue;
+      
+      // Allocate and add to pool (not in use)
+      const buffer = this.allocateBuffer(size);
+      this.pool.push({
+        buffer,
+        size,
+        inUse: false,
+        isShared: this.useShared,
+        lastAccess: Date.now(),
+      });
+    }
+  }
+  
   private findAvailableBuffer(minSize: number): PooledBuffer | null {
     // Find smallest available buffer that fits
     let best: PooledBuffer | null = null;
@@ -250,10 +285,13 @@ export class BufferPool {
   }
   
   private evictIfNeeded(newSize: number): void {
+    // First, try releasing idle buffers before forced eviction
+    this.releaseIdleBuffers();
+    
     const currentSize = this.getTotalPoolSize();
     const currentCount = this.pool.length;
     
-    // Check if we need to evict
+    // Check if we need to evict after idle cleanup
     if (currentSize + newSize <= this.config.maxPoolSize && 
         currentCount < this.config.maxBufferCount) {
       return;

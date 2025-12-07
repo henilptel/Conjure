@@ -127,33 +127,39 @@ export function ChatProvider({ children }: ChatProviderProps) {
 
   // Process tool calls from streaming responses
   // Detect show_tools and remove_tools tool calls in message parts
-  // Optimization: Only scan completed messages + always re-scan the last message
-  // (since it may be actively streaming and parts can change state)
+  // Optimization: Track both messageIndex and partIndex to minimize re-scanning
   useEffect(() => {
-    const lastCompletedMsgIdx = lastScannedRef.current.messageIndex;
+    const { messageIndex: lastMsgIdx, partIndex: lastPartIdx } = lastScannedRef.current;
     
     // Reset scan position if messages array shrunk (e.g., cleared)
-    if (lastCompletedMsgIdx > messages.length) {
+    if (lastMsgIdx > messages.length) {
       lastScannedRef.current = { messageIndex: 0, partIndex: 0 };
       return;
     }
     
-    // Determine where to start scanning:
-    // - For completed messages (before the last one), start from lastCompletedMsgIdx
-    // - Always re-scan the last message since it may be streaming
-    const startMsgIdx = Math.max(0, lastCompletedMsgIdx);
+    // Track if we found any unprocessed streaming parts (need to re-scan on next update)
+    let hasStreamingParts = false;
     
-    // Scan messages
-    for (let msgIdx = startMsgIdx; msgIdx < messages.length; msgIdx++) {
+    // Scan from last position
+    for (let msgIdx = lastMsgIdx; msgIdx < messages.length; msgIdx++) {
       const message = messages[msgIdx];
       if (message.role !== 'assistant' || !message.parts) continue;
 
-      // Always scan all parts of each message we visit
-      // (the processedToolCallsRef prevents duplicate processing)
-      for (const part of message.parts) {
+      // For the starting message, resume from last part index; otherwise start at 0
+      const startPartIdx = msgIdx === lastMsgIdx ? lastPartIdx : 0;
+      
+      for (let partIdx = startPartIdx; partIdx < message.parts.length; partIdx++) {
+        const part = message.parts[partIdx];
+        
         // Check if this is a tool UI part using the helper
         if (isToolUIPart(part)) {
           const toolName = getToolName(part);
+
+          // Track if there are still-streaming parts we need to re-check
+          if (part.state === 'input-streaming') {
+            hasStreamingParts = true;
+            continue;
+          }
 
           // Skip if already processed
           if (processedToolCallsRef.current.has(part.toolCallId)) continue;
@@ -193,13 +199,25 @@ export function ChatProvider({ children }: ChatProviderProps) {
       }
     }
     
-    // Update scan position: mark all messages except the last as "completed"
-    // We'll always re-scan the last message on next update in case it's still streaming
-    if (messages.length > 1) {
-      lastScannedRef.current = {
-        messageIndex: messages.length - 1,
-        partIndex: 0,
-      };
+    // Update scan position based on what we found
+    if (messages.length > 0) {
+      const lastMsg = messages[messages.length - 1];
+      const lastPartCount = lastMsg.parts?.length ?? 0;
+      
+      if (hasStreamingParts) {
+        // If there are streaming parts, we need to re-scan from the last message
+        // but we can skip completed messages before it
+        lastScannedRef.current = {
+          messageIndex: messages.length - 1,
+          partIndex: 0, // Re-scan all parts of last message to catch state changes
+        };
+      } else {
+        // No streaming parts - we can advance past everything
+        lastScannedRef.current = {
+          messageIndex: messages.length - 1,
+          partIndex: lastPartCount,
+        };
+      }
     } else {
       lastScannedRef.current = { messageIndex: 0, partIndex: 0 };
     }

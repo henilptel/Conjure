@@ -207,6 +207,63 @@ describe('BufferPool', () => {
       expect(pool.getTotalPoolSize()).toBe(0);
     });
   });
+
+  describe('warmPool', () => {
+    it('pre-allocates buffers of specified sizes', () => {
+      expect(pool.getBufferCount()).toBe(0);
+
+      pool.warmPool([1024, 2048, 4096]);
+
+      expect(pool.getBufferCount()).toBe(3);
+      expect(pool.getTotalPoolSize()).toBe(1024 + 2048 + 4096);
+      expect(pool.getActiveBufferCount()).toBe(0); // Not in use
+    });
+
+    it('skips duplicate sizes', () => {
+      pool.warmPool([1024, 1024, 1024]);
+
+      // Should only create one buffer of size 1024
+      expect(pool.getBufferCount()).toBe(1);
+    });
+
+    it('respects maxPoolSize limit', () => {
+      const smallPool = new BufferPool({
+        maxPoolSize: 5000,
+        maxBufferCount: 10,
+      });
+
+      smallPool.warmPool([2000, 2000, 2000]); // Would be 6000, exceeds 5000
+
+      expect(smallPool.getTotalPoolSize()).toBeLessThanOrEqual(5000);
+
+      smallPool.dispose();
+    });
+
+    it('respects maxBufferCount limit', () => {
+      const limitedPool = new BufferPool({
+        maxPoolSize: 100 * 1024 * 1024,
+        maxBufferCount: 2,
+      });
+
+      limitedPool.warmPool([100, 200, 300]); // Would be 3 buffers, limit is 2
+
+      expect(limitedPool.getBufferCount()).toBeLessThanOrEqual(2);
+
+      limitedPool.dispose();
+    });
+
+    it('warmed buffers are reused on acquire', () => {
+      pool.warmPool([1024]);
+      
+      const { view, release } = pool.acquire(1024);
+      
+      // Should reuse the warmed buffer, not allocate new
+      expect(pool.getBufferCount()).toBe(1);
+      expect(view.byteLength).toBe(1024);
+      
+      release();
+    });
+  });
 });
 
 describe('getBufferPool / resetBufferPool', () => {
