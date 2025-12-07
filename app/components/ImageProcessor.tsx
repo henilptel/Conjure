@@ -486,8 +486,9 @@ export default function ImageProcessor() {
     // (Requirements: 2.2, 2.3, 2.4)
     if (isCompareMode) return;
     
-    // Create a fingerprint of current tools to detect changes
-    const toolsFingerprint = JSON.stringify(activeTools.map(t => ({ id: t.id, value: t.value })));
+    // Create a lightweight fingerprint of current tools to detect changes
+    // Using template literal join instead of JSON.stringify for better performance
+    const toolsFingerprint = activeTools.map(t => `${t.id}:${t.value}`).join('|');
     
     // Skip processing if tools haven't changed since last processing
     // This prevents re-processing when exiting compare mode
