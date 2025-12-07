@@ -20,6 +20,7 @@ import {
   ChevronRight,
   type LucideIcon,
 } from 'lucide-react';
+import { useShallow } from 'zustand/react/shallow';
 import { useAppStore } from '@/lib/store';
 import { getAllToolDefinitions, type ToolDefinition } from '@/lib/tools-registry';
 import { glass, glassSubtle, glassInteractive, transitions, iconSize } from '@/lib/design-tokens';
@@ -74,12 +75,17 @@ export interface ToolBrowserProps {
 }
 
 export default function ToolBrowser({ isOpen, onClose, onToolSelect, initialCategory }: ToolBrowserProps) {
-  const activeTools = useAppStore((state) => state.activeTools);
-  const addTool = useAppStore((state) => state.addTool);
-  const removeTool = useAppStore((state) => state.removeTool);
-  const updateToolValue = useAppStore((state) => state.updateToolValue);
-  const startPreview = useAppStore((state) => state.startPreview);
-  const commitPreview = useAppStore((state) => state.commitPreview);
+  // Combine all store selectors into a single subscription using useShallow
+  const { activeTools, addTool, removeTool, updateToolValue, startPreview, commitPreview } = useAppStore(
+    useShallow((state) => ({
+      activeTools: state.activeTools,
+      addTool: state.addTool,
+      removeTool: state.removeTool,
+      updateToolValue: state.updateToolValue,
+      startPreview: state.startPreview,
+      commitPreview: state.commitPreview,
+    }))
+  );
   
   const [expandedToolId, setExpandedToolId] = useState<string | null>(null);
   const [activeCategory, setActiveCategory] = useState<string>(initialCategory || 'color');

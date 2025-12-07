@@ -10,6 +10,7 @@ import {
   Sparkles,
   type LucideIcon,
 } from 'lucide-react';
+import { useShallow } from 'zustand/react/shallow';
 import { useAppStore } from '@/lib/store';
 import { getToolConfig, getToolIcon } from '@/lib/tools-registry';
 import { glassSubtle, glass, iconSize, magneticButton } from '@/lib/design-tokens';
@@ -56,11 +57,17 @@ export interface ActiveToolsPanelProps {
  * - Grouped by category when expanded
  */
 function ActiveToolsPanelComponent({ disabled = false, onToolSelect }: ActiveToolsPanelProps) {
-  const activeTools = useAppStore((state) => state.activeTools);
-  const updateToolValue = useAppStore((state) => state.updateToolValue);
-  const removeTool = useAppStore((state) => state.removeTool);
-  const startPreview = useAppStore((state) => state.startPreview);
-  const commitPreview = useAppStore((state) => state.commitPreview);
+  // Combine all store selectors into a single subscription using useShallow
+  // This prevents multiple re-renders when unrelated state changes
+  const { activeTools, updateToolValue, removeTool, startPreview, commitPreview } = useAppStore(
+    useShallow((state) => ({
+      activeTools: state.activeTools,
+      updateToolValue: state.updateToolValue,
+      removeTool: state.removeTool,
+      startPreview: state.startPreview,
+      commitPreview: state.commitPreview,
+    }))
+  );
   
   const [isExpanded, setIsExpanded] = useState(false);
   const [expandedToolId, setExpandedToolId] = useState<string | null>(null);
