@@ -49,10 +49,10 @@ const TOOL_ICONS: Record<string, LucideIcon> = {
 
 // Category icons and colors for visual distinction
 const CATEGORY_CONFIG: Record<string, { icon: LucideIcon; gradient: string }> = {
-  color: { icon: Paintbrush, gradient: 'from-white/15 to-white/5' },
-  detail: { icon: Focus, gradient: 'from-white/15 to-white/5' },
-  artistic: { icon: Sparkles, gradient: 'from-white/15 to-white/5' },
-  geometry: { icon: RotateCw, gradient: 'from-white/15 to-white/5' },
+  color: { icon: Paintbrush, gradient: 'from-fuchsia-500/20 to-violet-500/10' },
+  detail: { icon: Focus, gradient: 'from-blue-500/20 to-indigo-500/10' },
+  artistic: { icon: Sparkles, gradient: 'from-amber-500/20 to-orange-500/10' },
+  geometry: { icon: RotateCw, gradient: 'from-cyan-500/20 to-teal-500/10' },
 };
 
 const CATEGORIES = [
@@ -78,6 +78,8 @@ export default function ToolBrowser({ isOpen, onClose, onToolSelect, initialCate
   const addTool = useAppStore((state) => state.addTool);
   const removeTool = useAppStore((state) => state.removeTool);
   const updateToolValue = useAppStore((state) => state.updateToolValue);
+  const startPreview = useAppStore((state) => state.startPreview);
+  const commitPreview = useAppStore((state) => state.commitPreview);
   
   const [expandedToolId, setExpandedToolId] = useState<string | null>(null);
   const [activeCategory, setActiveCategory] = useState<string>(initialCategory || 'color');
@@ -109,10 +111,18 @@ export default function ToolBrowser({ isOpen, onClose, onToolSelect, initialCate
     if (expandedToolId === toolId) setExpandedToolId(null);
   }, [removeTool, expandedToolId]);
 
-  // Handle slider change - directly updates tool value for WASM processing
+  // Handle slider change - starts preview and updates tool value for WASM processing
+  // Requirements: undo-redo 3.3
   const handleSliderChange = useCallback((toolId: string, value: number) => {
+    startPreview(toolId);
     updateToolValue(toolId, value);
-  }, [updateToolValue]);
+  }, [updateToolValue, startPreview]);
+
+  // Handle slider commit - records history when slider is released
+  // Requirements: undo-redo 3.3
+  const handleSliderCommit = useCallback((toolId: string, value: number) => {
+    commitPreview(toolId, value);
+  }, [commitPreview]);
 
   // Get tools for active category
   const currentCategory = CATEGORIES.find(c => c.id === activeCategory);
@@ -166,7 +176,7 @@ export default function ToolBrowser({ isOpen, onClose, onToolSelect, initialCate
                     whileTap={{ scale: 0.95 }}
                     className={`relative p-3 rounded-xl transition-all duration-200
                                ${isActive 
-                                 ? 'bg-white/15 backdrop-blur-xl border border-white/30 shadow-lg' 
+                                 ? `bg-gradient-to-br ${config?.gradient || 'from-white/15 to-white/5'} backdrop-blur-xl border border-white/30 shadow-lg` 
                                  : 'bg-white/5 backdrop-blur-xl border border-white/10 hover:bg-white/10 hover:border-white/20'
                                }`}
                     style={isActive ? { boxShadow: glassSubtle.boxShadow } : undefined}
@@ -239,6 +249,7 @@ export default function ToolBrowser({ isOpen, onClose, onToolSelect, initialCate
                     onClick={() => handleToolClick(tool)}
                     onRemove={(e) => handleRemoveTool(tool.id, e)}
                     onSliderChange={(value) => handleSliderChange(tool.id, value)}
+                    onSliderCommit={(value) => handleSliderCommit(tool.id, value)}
                   />
                 ))}
               </div>
@@ -271,6 +282,7 @@ interface ToolCardProps {
   onClick: () => void;
   onRemove: (e: React.MouseEvent) => void;
   onSliderChange: (value: number) => void;
+  onSliderCommit?: (value: number) => void;
 }
 
 function ToolCard({
@@ -282,6 +294,7 @@ function ToolCard({
   onClick,
   onRemove,
   onSliderChange,
+  onSliderCommit,
 }: ToolCardProps) {
   const displayValue = currentValue ?? tool.defaultValue;
 
@@ -349,10 +362,11 @@ function ToolCard({
             min={tool.min}
             max={tool.max}
             onChange={onSliderChange}
+            onCommit={onSliderCommit}
             label={tool.label}
             id={`browser-slider-${tool.id}`}
             defaultValue={tool.defaultValue}
-            formatValue={createSliderFormatter(tool.id)}
+            formatValue={createSliderFormatter()}
           />
         </div>
       )}

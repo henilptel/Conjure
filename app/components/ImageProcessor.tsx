@@ -28,6 +28,7 @@ import { formatBytes, MemoryUsageInfo } from '@/lib/memory-management';
 import { getProcessingMessage } from '@/lib/processing-messages';
 import { glassSubtle } from '@/lib/design-tokens';
 import MemoryStats from './MemoryStats';
+import UndoRedoButtons from './dock/UndoRedoButtons';
 
 type ProcessingStatus = 'idle' | 'initializing' | 'processing' | 'complete' | 'error';
 
@@ -80,12 +81,13 @@ export default function ImageProcessor() {
   const processingMessage = useAppStore((state) => state.processingMessage);
   
   // Subscribe to actions separately (these are stable references)
-  const { setImageState, setProcessingStatus, setProcessingMessage, resetTools } = useAppStore(
+  const { setImageState, setProcessingStatus, setProcessingMessage, resetTools, clearHistory } = useAppStore(
     useShallow((state) => ({
       setImageState: state.setImageState,
       setProcessingStatus: state.setProcessingStatus,
       setProcessingMessage: state.setProcessingMessage,
       resetTools: state.resetTools,
+      clearHistory: state.clearHistory,
     }))
   );
   
@@ -660,6 +662,9 @@ export default function ImageProcessor() {
         width: data.width,
         height: data.height,
       });
+      
+      // Clear history on new image load (Requirements: 5.1, 5.2)
+      clearHistory();
     } catch (err) {
       const errorMessage = err instanceof Error 
         ? err.message 
@@ -679,18 +684,22 @@ export default function ImageProcessor() {
 
   // Cleanup on unmount
   useEffect(() => {
-    // Capture ref values at effect setup time
-    const engine = engineRef.current;
-    const cache = canvasRenderCacheRef.current;
-    
+    // Return cleanup function that reads refs when it runs (at unmount time)
+    // This ensures we dispose the actual instances, even if they were created
+    // later (e.g., ImageEngine is created in handleFileSelect after mount)
     return () => {
-      if (engine) {
+      const currentEngine = engineRef.current;
+      const currentCache = canvasRenderCacheRef.current;
+      
+      if (currentEngine) {
         // Use async dispose for thread-safe cleanup
         // Fire-and-forget since we're unmounting
-        engine.disposeAsync();
+        currentEngine.disposeAsync();
       }
       // Clear canvas render cache to free memory
-      clearCanvasRenderCache(cache);
+      if (currentCache) {
+        clearCanvasRenderCache(currentCache);
+      }
     };
   }, []);
 
@@ -906,23 +915,30 @@ export default function ImageProcessor() {
 
       {/* Note: Tool controls handled by ActiveToolsPanel and EffectsFAB */}
 
-      {/* Reset Button - positioned at bottom left */}
-      {state.hasImage && activeTools.length > 0 && (
-        <button
-          onClick={resetTools}
-          disabled={isProcessing}
-          className={cn(
-            "absolute bottom-4 left-4 md:bottom-6 md:left-6",
-            "flex items-center gap-2 px-3 py-1.5 rounded-full",
-            glassSubtle.blur, glassSubtle.border, "text-sm",
-            isProcessing
-              ? "bg-zinc-900/50 text-zinc-500 cursor-not-allowed"
-              : `${glassSubtle.background} text-zinc-200 hover:bg-zinc-800/70 transition-colors cursor-pointer`
+      {/* Bottom Left Controls - Reset and Undo/Redo buttons */}
+      {state.hasImage && (
+        <div className="absolute bottom-4 left-4 md:bottom-6 md:left-6 flex items-center gap-2">
+          {/* Undo/Redo Buttons (Requirements: 1.2, 2.2, 4.1, 4.2, 4.3, 4.4, 4.5) */}
+          <UndoRedoButtons />
+          
+          {/* Reset Button */}
+          {activeTools.length > 0 && (
+            <button
+              onClick={resetTools}
+              disabled={isProcessing}
+              className={cn(
+                "flex items-center gap-2 px-3 py-1.5 rounded-full",
+                glassSubtle.blur, glassSubtle.border, "text-sm",
+                isProcessing
+                  ? "bg-zinc-900/50 text-zinc-500 cursor-not-allowed"
+                  : `${glassSubtle.background} text-zinc-200 hover:bg-zinc-800/70 transition-colors cursor-pointer`
+              )}
+            >
+              <RotateCcw className="w-4 h-4" />
+              Reset
+            </button>
           )}
-        >
-          <RotateCcw className="w-4 h-4" />
-          Reset
-        </button>
+        </div>
       )}
       
       {/* Stats for Nerds - Memory diagnostics panel */}

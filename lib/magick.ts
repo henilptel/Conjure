@@ -141,7 +141,7 @@ class WorkerManager {
           // Worker is ready, send init message
           // Create a fresh ArrayBuffer copy for transfer - this copy gets neutered
           // but cachedWasmBytes remains intact for future worker re-initializations
-          const wasmBytesCopy = new Uint8Array(cachedWasmBytes!).buffer;
+          const wasmBytesCopy = cachedWasmBytes!.slice(0);
           this.worker!.postMessage({
             type: 'init',
             wasmBytes: wasmBytesCopy,
@@ -346,40 +346,177 @@ export interface ImageData {
 }
 
 /**
- * Simple promise-based mutex for protecting shared state in async operations.
+ * Options for acquiring the mutex lock.
+ */
+interface AcquireOptions {
+  /** Timeout in milliseconds. If not acquired within this time, promise rejects. Default: 30000 */
+  timeoutMs?: number;
+  /** AbortSignal to cancel the acquire attempt */
+  signal?: AbortSignal;
+}
+
+/**
+ * Waiter entry in the queue with cleanup handles.
+ */
+interface WaiterEntry {
+  resolve: () => void;
+  reject: (error: Error) => void;
+  /** Whether this waiter has been resolved/rejected (for skip detection) */
+  settled: boolean;
+  /** Timeout timer ID for cleanup */
+  timeoutId: ReturnType<typeof setTimeout> | null;
+  /** Abort listener cleanup function */
+  abortCleanup: (() => void) | null;
+}
+
+/** Default timeout for acquire() in milliseconds */
+const DEFAULT_ACQUIRE_TIMEOUT_MS = 30000;
+
+/** Maximum number of waiters allowed in the queue */
+const MAX_QUEUE_SIZE = 100;
+
+/**
+ * Promise-based mutex for protecting shared state in async operations.
  * Ensures only one operation can access protected resources at a time.
+ * 
+ * Features:
+ * - Timeout support: acquire() rejects if lock isn't granted within timeout
+ * - AbortSignal support: acquire() rejects if signal is aborted
+ * - Queue bounds: acquire() throws immediately if queue is full
+ * - Diagnostics: queueLength and isLocked() for monitoring contention
+ * - Proper cleanup: timed-out/aborted waiters are removed from queue
  */
 class AsyncMutex {
   private locked = false;
-  private waitQueue: Array<() => void> = [];
+  private waitQueue: WaiterEntry[] = [];
 
   /**
    * Acquires the lock. If already locked, waits until released.
+   * 
+   * @param options - Optional timeout and abort signal
    * @returns Promise that resolves when lock is acquired
+   * @throws Error if timeout expires, signal is aborted, or queue is full
    */
-  async acquire(): Promise<void> {
+  async acquire(options?: AcquireOptions): Promise<void> {
+    const timeoutMs = options?.timeoutMs ?? DEFAULT_ACQUIRE_TIMEOUT_MS;
+    const signal = options?.signal;
+
+    // Check if already aborted
+    if (signal?.aborted) {
+      throw new Error('AsyncMutex.acquire: aborted before acquire attempt');
+    }
+
+    // Check queue bounds
+    if (this.waitQueue.length >= MAX_QUEUE_SIZE) {
+      throw new Error(
+        `AsyncMutex.acquire: queue is full (${MAX_QUEUE_SIZE} waiters). ` +
+        'This may indicate a resource leak or deadlock.'
+      );
+    }
+
+    // Fast path: lock is free
     if (!this.locked) {
       this.locked = true;
       return;
     }
 
-    // Wait in queue for lock to be released
-    return new Promise<void>((resolve) => {
-      this.waitQueue.push(resolve);
+    // Slow path: wait in queue for lock to be released
+    return new Promise<void>((resolve, reject) => {
+      const entry: WaiterEntry = {
+        resolve,
+        reject,
+        settled: false,
+        timeoutId: null,
+        abortCleanup: null,
+      };
+
+      // Helper to settle this waiter (cleanup and mark as done)
+      const settleWithError = (error: Error) => {
+        if (entry.settled) return;
+        entry.settled = true;
+        
+        // Clear timeout if set
+        if (entry.timeoutId !== null) {
+          clearTimeout(entry.timeoutId);
+          entry.timeoutId = null;
+        }
+        
+        // Remove abort listener if set
+        if (entry.abortCleanup) {
+          entry.abortCleanup();
+          entry.abortCleanup = null;
+        }
+        
+        // Remove from queue (waiter may still be in queue if not yet processed by release())
+        const index = this.waitQueue.indexOf(entry);
+        if (index !== -1) {
+          this.waitQueue.splice(index, 1);
+        }
+        
+        reject(error);
+      };
+
+      // Set up timeout
+      if (timeoutMs > 0 && timeoutMs < Infinity) {
+        entry.timeoutId = setTimeout(() => {
+          console.warn(
+            `AsyncMutex.acquire: timeout after ${timeoutMs}ms. ` +
+            `Queue length: ${this.waitQueue.length}, isLocked: ${this.locked}`
+          );
+          settleWithError(new Error(
+            `AsyncMutex.acquire: timeout after ${timeoutMs}ms waiting for lock`
+          ));
+        }, timeoutMs);
+      }
+
+      // Set up abort signal listener
+      if (signal) {
+        const onAbort = () => {
+          settleWithError(new Error('AsyncMutex.acquire: aborted by signal'));
+        };
+        signal.addEventListener('abort', onAbort);
+        entry.abortCleanup = () => signal.removeEventListener('abort', onAbort);
+      }
+
+      // Add to queue
+      this.waitQueue.push(entry);
     });
   }
 
   /**
-   * Releases the lock and allows next waiting operation to proceed.
+   * Releases the lock and allows next valid waiting operation to proceed.
+   * Skips and removes any waiters that have already timed out or been aborted.
    */
   release(): void {
-    if (this.waitQueue.length > 0) {
-      // Pass lock to next waiter
+    // Find next valid (non-settled) waiter
+    while (this.waitQueue.length > 0) {
       const next = this.waitQueue.shift()!;
-      next();
-    } else {
-      this.locked = false;
+      
+      // Skip waiters that have already been settled (timed out / aborted)
+      if (next.settled) {
+        continue;
+      }
+      
+      // Mark as settled and clean up timers before resolving
+      next.settled = true;
+      
+      if (next.timeoutId !== null) {
+        clearTimeout(next.timeoutId);
+        next.timeoutId = null;
+      }
+      
+      if (next.abortCleanup) {
+        next.abortCleanup();
+        next.abortCleanup = null;
+      }
+      
+      // Pass lock to this waiter (lock stays held)
+      next.resolve();
+      return;
     }
+    
+    // No valid waiters, release the lock
+    this.locked = false;
   }
 
   /**
@@ -387,6 +524,21 @@ class AsyncMutex {
    */
   isLocked(): boolean {
     return this.locked;
+  }
+
+  /**
+   * Gets the current number of waiters in the queue.
+   * Note: Some waiters may be settled (timed out / aborted) but not yet removed.
+   */
+  get queueLength(): number {
+    return this.waitQueue.length;
+  }
+
+  /**
+   * Gets the number of active (non-settled) waiters in the queue.
+   */
+  get activeWaitersCount(): number {
+    return this.waitQueue.filter(w => !w.settled).length;
   }
 }
 
@@ -490,10 +642,8 @@ export class ImageEngine {
   private computeToolsSignature(tools: ActiveTool[]): string {
     if (tools.length === 0) return '';
     // Sort by id for consistent ordering, then serialize id:value pairs
-    return [...tools]
-      .sort((a, b) => a.id.localeCompare(b.id))
-      .map(t => `${t.id}:${t.value}`)
-      .join('|');
+    const sorted = [...tools].sort((a, b) => a.id.localeCompare(b.id));
+    return JSON.stringify(sorted.map(t => ({ id: t.id, value: t.value })));
   }
   
   /**

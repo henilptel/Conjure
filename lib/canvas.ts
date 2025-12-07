@@ -159,6 +159,16 @@ export function calculatePinchTransform(
     return pinchState.initialTransform;
   }
   
+  // Guard against division by zero for initialScale (fallback to 1)
+  const safeScale = Math.abs(pinchState.initialScale) < EPSILON ? 1 : pinchState.initialScale;
+  if (safeScale !== pinchState.initialScale) {
+    console.warn(
+      'calculatePinchTransform: initialScale was invalid (near-zero or zero):',
+      pinchState.initialScale,
+      '- using fallback value of 1'
+    );
+  }
+  
   // Calculate scale change
   const scaleRatio = currentDistance / pinchState.initialDistance;
   const newScale = Math.max(
@@ -181,8 +191,9 @@ export function calculatePinchTransform(
   };
   
   // The image point that was under the initial pinch center
-  const imageX = (initialCenterRel.x - pinchState.initialTransform.x) / pinchState.initialScale;
-  const imageY = (initialCenterRel.y - pinchState.initialTransform.y) / pinchState.initialScale;
+  // Use safeScale to prevent division by zero
+  const imageX = (initialCenterRel.x - pinchState.initialTransform.x) / safeScale;
+  const imageY = (initialCenterRel.y - pinchState.initialTransform.y) / safeScale;
   
   // Calculate new translation to keep that image point under the current pinch center
   // Also account for any panning (difference between initial and current center)

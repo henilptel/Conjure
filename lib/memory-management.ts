@@ -212,10 +212,47 @@ export function analyzeMemoryRequirements(
     };
   }
   
-  // Even downscaled version exceeds budget
+  // Even dimension-downscaled version exceeds budget
+  // Apply additional memory-based downscaling (same logic as earlier for within-dimension images)
+  const availableBudget = MAX_MEMORY_BUDGET_BYTES - currentUsage;
+  
+  if (availableBudget <= 0) {
+    return {
+      type: 'reject',
+      reason: 'System is already out of memory budget.',
+    };
+  }
+  
+  // Calculate additional scale needed relative to already-downscaled dimensions
+  // Scale = sqrt(available / estimated) because memory scales with area
+  // Use 0.95 safety margin for rounding and overhead
+  const MIN_DOWNSCALE_FACTOR = 0.1;
+  const additionalScaleNeeded = Math.sqrt(availableBudget / downscaledUsage) * 0.95;
+  
+  // Clamp to minimum scale factor (relative to dimension-downscaled size)
+  const clampedAdditionalScale = Math.max(additionalScaleNeeded, MIN_DOWNSCALE_FACTOR);
+  
+  // Compute final dimensions from the dimension-downscaled size
+  const finalWidth = Math.round(dsWidth * clampedAdditionalScale);
+  const finalHeight = Math.round(dsHeight * clampedAdditionalScale);
+  const finalScale = scale * clampedAdditionalScale; // Combined scale from original
+  
+  // Verify the further-downscaled version fits
+  const finalUsage = estimateImageMemoryUsage(finalWidth, finalHeight, compressedSize);
+  
+  if (currentUsage + finalUsage <= MAX_MEMORY_BUDGET_BYTES) {
+    return {
+      type: 'downscale',
+      targetWidth: finalWidth,
+      targetHeight: finalHeight,
+      scale: finalScale,
+    };
+  }
+  
+  // Even with minimum scale factor, still exceeds budget - reject
   return {
     type: 'reject',
-    reason: `Image requires approximately ${Math.round(downscaledUsage / (1024 * 1024))}MB which exceeds available memory budget.`,
+    reason: `Image requires approximately ${Math.round(finalUsage / (1024 * 1024))}MB even at minimum scale, which exceeds available memory budget of ${Math.round(availableBudget / (1024 * 1024))}MB.`,
   };
 }
 

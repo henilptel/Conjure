@@ -496,7 +496,8 @@ describe('Property 2: Default Value Neutrality', () => {
           const tool = getToolConfig(toolId);
           expect(tool).toBeDefined();
           
-          if (tool && tool.defaultValue === 0) {
+          if (tool) {
+            expect(tool.defaultValue).toBe(0);
             const mockImage = createMockImage();
             
             tool.execute(mockImage as unknown as Parameters<typeof tool.execute>[0], tool.defaultValue);

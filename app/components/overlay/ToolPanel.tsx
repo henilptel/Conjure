@@ -41,7 +41,7 @@ const createSliderFormatter = (toolId: string) => (value: number): string => {
  * Uses Zustand store for state management with shallow equality selector
  * to prevent unnecessary re-renders.
  * 
- * Requirements: 1.6, 1.7, 5.1, 5.2, 5.3
+ * Requirements: 1.6, 1.7, 5.1, 5.2, 5.3, undo-redo 3.3
  */
 export default function ToolPanel({
   disabled = false,
@@ -51,18 +51,30 @@ export default function ToolPanel({
     activeTools, 
     updateToolValue,
     removeTool,
+    commitPreview,
+    startPreview,
   } = useAppStore(
     useShallow((state) => ({
       activeTools: state.activeTools,
       updateToolValue: state.updateToolValue,
       removeTool: state.removeTool,
+      commitPreview: state.commitPreview,
+      startPreview: state.startPreview,
     }))
   );
 
   // Handle slider change - directly updates tool value for WASM processing
   const handleSliderChange = useCallback((toolId: string, value: number) => {
+    // Start preview mode if not already started (for history tracking)
+    startPreview(toolId);
     updateToolValue(toolId, value);
-  }, [updateToolValue]);
+  }, [updateToolValue, startPreview]);
+
+  // Handle slider commit - records history when slider is released
+  // Requirements: undo-redo 3.3
+  const handleSliderCommit = useCallback((toolId: string, value: number) => {
+    commitPreview(toolId, value);
+  }, [commitPreview]);
   
   // Use AnimatePresence to handle exit animations (Requirement 5.2)
   return (
@@ -91,6 +103,7 @@ export default function ToolPanel({
                     min={tool.min}
                     max={tool.max}
                     onChange={(value) => handleSliderChange(tool.id, value)}
+                    onCommit={(value) => handleSliderCommit(tool.id, value)}
                     disabled={disabled}
                     defaultValue={getToolConfig(tool.id)?.defaultValue}
                     formatValue={createSliderFormatter(tool.id)}

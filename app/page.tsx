@@ -4,7 +4,7 @@ import ImageProcessor from './components/ImageProcessor';
 import DynamicDock from './components/dock/DynamicDock';
 import ActiveToolsPanel from './components/dock/ActiveToolsPanel';
 import EffectsFAB from './components/dock/EffectsFAB';
-import { useCompareMode } from '@/lib/hooks';
+import { useCompareMode, useUndoRedoKeyboard } from '@/lib/hooks';
 import { useAppStore } from '@/lib/store';
 
 /**
@@ -20,6 +20,9 @@ import { useAppStore } from '@/lib/store';
 export default function Home() {
   // Wire compare mode keyboard handler (Requirements: 6.1, 6.2)
   useCompareMode();
+  
+  // Wire undo/redo keyboard shortcuts (Requirements: 1.1, 2.1)
+  useUndoRedoKeyboard();
   
   const hasImage = useAppStore((state) => state.imageState.hasImage);
 
