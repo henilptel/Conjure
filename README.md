@@ -30,6 +30,11 @@ The AI assistant doesn't just answer questions - it generates the exact UI contr
 - **Aspect Ratio Preservation**: Images scale to fit canvas while maintaining proportions
 - **File Validation**: Supports PNG, JPEG, GIF, and WebP formats
 
+### Editing Controls
+- **Compare Mode**: Hold Space to instantly preview the original image while editing
+- **Undo/Redo**: Full history support with Ctrl+Z (undo) and Ctrl+Shift+Z (redo) keyboard shortcuts
+- **UI Buttons**: Undo/redo buttons in the dock for mouse-based workflow
+
 ### AI Assistant
 - **Context-Aware Chat**: The AI knows your current image state, active tools, and their values
 - **Streaming Responses**: Real-time feedback as the AI generates responses
@@ -131,22 +136,9 @@ npm run dev
 
 The project uses a dual testing approach with Jest and fast-check:
 
-**Property-Based Testing** with fast-check validates universal properties:
-- Aspect ratio preservation across arbitrary dimensions
-- File validation behavior for any MIME type
-- Canvas dimension constraints
-- Blur/effect processing idempotence
-- Tool state management (add, update, remove)
-- Chat message styling consistency
-- Effect order determinism
-- Tool registry integrity
-- Dynamic dock behavior
-- Slider component properties
+**Property-Based Testing** with fast-check validates universal properties across the codebase, including aspect ratio preservation, file validation, canvas constraints, effect processing, tool state management, and UI component behavior.
 
-**Unit Testing** with Jest covers specific scenarios:
-- Chat interface rendering and interaction
-- Tool call detection and handling
-- Component integration
+**Unit Testing** with Jest provides comprehensive coverage for specific scenarios including chat interactions, tool handling, keyboard shortcuts, undo/redo functionality, and component integration.
 
 Run tests:
 
@@ -169,7 +161,8 @@ npm test
 │   │   │   ├── DynamicDock.tsx       # Main dock container
 │   │   │   ├── EffectsFAB.tsx        # Floating action button
 │   │   │   ├── GhostToast.tsx        # Toast notifications
-│   │   │   └── ToolBrowser.tsx       # Tool selection browser
+│   │   │   ├── ToolBrowser.tsx       # Tool selection browser
+│   │   │   └── UndoRedoButtons.tsx   # Undo/redo controls
 │   │   ├── overlay/
 │   │   │   └── ToolPanel.tsx     # Glassmorphism HUD panel
 │   │   └── ui/
@@ -252,6 +245,14 @@ Effects are applied in a consistent order for predictable results:
 - "I want to sharpen the details" → Sharpen slider added
 - "Rotate it slightly" → Rotate slider appears
 
+## Keyboard Shortcuts
+
+| Shortcut | Action |
+|----------|--------|
+| Space (hold) | Compare mode - view original image |
+| Ctrl+Z / Cmd+Z | Undo last action |
+| Ctrl+Shift+Z / Cmd+Shift+Z | Redo action |
+
 ## Available Tools
 
 | Tool | Range | Description |
@@ -281,19 +282,18 @@ Requires WebAssembly and SharedArrayBuffer support:
 
 ## Development Roadmap
 
-**Current Version: v0.8**
+**Current Version: v1.0**
 
-### Completed Features
-- v0.1: ImageMagick WASM initialization and grayscale conversion
-- v0.2: Manual slider controls for blur adjustment
-- v0.3: AI-powered chat with real-time image state awareness
-- v0.4: Generative UI with 15 image processing tools
-- v0.5: Dynamic dock UI with tool browser
-- v0.6: Performance optimizations and memory management
-- v0.7: UI refinements and comprehensive test coverage
-- v0.8: Architecture Overhaul
+### Version History
+The project evolved through iterative development: ImageMagick WASM integration (v0.1) → manual controls (v0.2) → AI chat (v0.3) → Generative UI with 15 effects (v0.4) → dynamic dock UI (v0.5) → performance optimizations (v0.6) → UI refinements and testing (v0.7) → architecture overhaul (v0.8) → undo/redo and compare mode (v0.9).
+
+### v1.0 Features
+- Full undo/redo support with keyboard shortcuts (Ctrl+Z, Ctrl+Shift+Z)
+- Compare mode (hold Space to view original)
+- Comprehensive test coverage with property-based testing
+- Production-ready architecture
+
 ### Planned Features
 - Image export functionality
 - Batch processing support
-- Undo/redo functionality
 - Custom tool presets
