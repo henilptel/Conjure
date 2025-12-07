@@ -92,6 +92,13 @@ export function ChatProvider({ children }: ChatProviderProps) {
   // Track processed tool call IDs to avoid duplicate callbacks (bounded FIFO cache)
   const processedToolCallsRef = useRef<Set<string>>(new Set());
   const toolCallOrderRef = useRef<string[]>([]); // FIFO queue for eviction
+  
+  // Track last scanned position to avoid re-scanning entire message history
+  // Format: { messageIndex, partIndex } - resume scanning from here
+  const lastScannedRef = useRef<{ messageIndex: number; partIndex: number }>({
+    messageIndex: 0,
+    partIndex: 0,
+  });
 
   // Single useChat instance for the entire app
   const { messages, sendMessage: baseSendMessage, status, error } = useChat({
@@ -120,11 +127,29 @@ export function ChatProvider({ children }: ChatProviderProps) {
 
   // Process tool calls from streaming responses
   // Detect show_tools and remove_tools tool calls in message parts
+  // Optimization: Only scan completed messages + always re-scan the last message
+  // (since it may be actively streaming and parts can change state)
   useEffect(() => {
-    // Scan all messages for tool calls
-    for (const message of messages) {
+    const lastCompletedMsgIdx = lastScannedRef.current.messageIndex;
+    
+    // Reset scan position if messages array shrunk (e.g., cleared)
+    if (lastCompletedMsgIdx > messages.length) {
+      lastScannedRef.current = { messageIndex: 0, partIndex: 0 };
+      return;
+    }
+    
+    // Determine where to start scanning:
+    // - For completed messages (before the last one), start from lastCompletedMsgIdx
+    // - Always re-scan the last message since it may be streaming
+    const startMsgIdx = Math.max(0, lastCompletedMsgIdx);
+    
+    // Scan messages
+    for (let msgIdx = startMsgIdx; msgIdx < messages.length; msgIdx++) {
+      const message = messages[msgIdx];
       if (message.role !== 'assistant' || !message.parts) continue;
 
+      // Always scan all parts of each message we visit
+      // (the processedToolCallsRef prevents duplicate processing)
       for (const part of message.parts) {
         // Check if this is a tool UI part using the helper
         if (isToolUIPart(part)) {
@@ -166,6 +191,17 @@ export function ChatProvider({ children }: ChatProviderProps) {
           }
         }
       }
+    }
+    
+    // Update scan position: mark all messages except the last as "completed"
+    // We'll always re-scan the last message on next update in case it's still streaming
+    if (messages.length > 1) {
+      lastScannedRef.current = {
+        messageIndex: messages.length - 1,
+        partIndex: 0,
+      };
+    } else {
+      lastScannedRef.current = { messageIndex: 0, partIndex: 0 };
     }
   }, [messages, addTool, removeTool, addProcessedToolCall]);
 
