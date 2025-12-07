@@ -23,6 +23,12 @@ import {
   MemoryUsageInfo,
   MEMORY_BUFFER_NAMES,
 } from "./memory-management";
+import {
+  BufferPool,
+  getBufferPool,
+  isSharedArrayBufferSupported,
+  cloneIfNeeded,
+} from "./buffer-pool";
 
 let isInitialized = false;
 let initializationPromise: Promise<void> | null = null;
@@ -554,6 +560,7 @@ class AsyncMutex {
  * - Supports downscaling large images for processing (configurable threshold)
  * - Provides idle cleanup to release memory after inactivity
  * - Stores original dimensions for export upscaling
+ * - Uses BufferPool for zero-copy buffer reuse when possible
  *
  * Thread Safety:
  * - Uses an AsyncMutex to protect shared state (sourceBytes, cachedPixels, etc.)
@@ -565,6 +572,7 @@ class AsyncMutex {
  * - process() uses cached pixels instead of re-decoding from bytes
  * - Memoization: Returns cached result if activeTools haven't changed (dirty-check)
  * - processInWorker(): Offloads WASM processing to Web Worker (non-blocking)
+ * - Zero-copy returns: Returns views into cached buffers when safe
  * - Significantly reduces CPU usage during slider interactions
  *
  * Requirements: 3.1, 3.2, 3.3, slider-performance 2.1, 2.2, 2.3, 2.4
@@ -617,14 +625,23 @@ export class ImageEngine {
   
   /** Maximum dimension for processing (configurable) */
   private maxProcessingDimension: number = MAX_PROCESSING_DIMENSION;
+  
+  /** Buffer pool for zero-copy operations */
+  private bufferPool: BufferPool;
+  
+  /** Whether to use zero-copy returns (returns views instead of copies) */
+  private zeroCopyEnabled: boolean = true;
 
   constructor(options?: {
     autoDownscale?: boolean;
     maxProcessingDimension?: number;
     idleCleanupTimeoutMs?: number;
+    zeroCopyEnabled?: boolean;
   }) {
     this.autoDownscale = options?.autoDownscale ?? true;
     this.maxProcessingDimension = options?.maxProcessingDimension ?? MAX_PROCESSING_DIMENSION;
+    this.zeroCopyEnabled = options?.zeroCopyEnabled ?? true;
+    this.bufferPool = getBufferPool();
     this.idleCleanupManager = new IdleCleanupManager(
       options?.idleCleanupTimeoutMs ?? IDLE_CLEANUP_TIMEOUT_MS
     );
@@ -726,6 +743,13 @@ export class ImageEngine {
       loadScale: number;
     } | null;
     isWorkerActive: boolean;
+    bufferPool: {
+      totalPoolSize: number;
+      bufferCount: number;
+      activeBuffers: number;
+      isUsingSharedArrayBuffer: boolean;
+    };
+    zeroCopyEnabled: boolean;
   } {
     this.updateMemoryTracking();
     
@@ -742,6 +766,8 @@ export class ImageEngine {
         loadScale: this.loadScale,
       } : null,
       isWorkerActive: this.isWorkerReady(),
+      bufferPool: this.getBufferPoolStats(),
+      zeroCopyEnabled: this.zeroCopyEnabled,
     };
   }
   
@@ -973,8 +999,10 @@ export class ImageEngine {
       this.memoryTracker.clear(MEMORY_BUFFER_NAMES.PROCESSED_RESULT);
       
       this.mutex.release();
+      // Zero-copy: return view into cached pixels when enabled
+      // Caller should not mutate the returned pixels
       return {
-        pixels: new Uint8Array(cachedPixels),
+        pixels: this.zeroCopyEnabled ? cachedPixels : new Uint8Array(cachedPixels),
         width: cachedWidth,
         height: cachedHeight,
         originalBytes: sourceBytes,
@@ -984,11 +1012,12 @@ export class ImageEngine {
     // Dirty-check: Compare tools signature with last processed
     const currentSignature = this.computeToolsSignature(activeTools);
     if (currentSignature === this.lastToolsSignature && this.lastProcessedResult) {
-      // Return cached result (copy pixels to avoid mutation issues)
+      // Return cached result - zero-copy when enabled
+      // Caller should not mutate the returned pixels
       const cachedResult = this.lastProcessedResult;
       this.mutex.release();
       return {
-        pixels: new Uint8Array(cachedResult.pixels),
+        pixels: this.zeroCopyEnabled ? cachedResult.pixels : new Uint8Array(cachedResult.pixels),
         width: cachedResult.width,
         height: cachedResult.height,
         originalBytes: cachedResult.originalBytes,
@@ -1132,9 +1161,10 @@ export class ImageEngine {
     this.mutex.release();
 
     // If no tools, return cached pixels directly (fast path)
+    // Zero-copy: return view into cached pixels when enabled
     if (canUseFastPath && cachedPixels) {
       return {
-        pixels: new Uint8Array(cachedPixels),
+        pixels: this.zeroCopyEnabled ? cachedPixels : new Uint8Array(cachedPixels),
         width: cachedWidth,
         height: cachedHeight,
         originalBytes: sourceBytes,
@@ -1245,6 +1275,48 @@ export class ImageEngine {
   getCachedDimensions(): { width: number; height: number } | null {
     if (!this.cachedPixels) return null;
     return { width: this.cachedWidth, height: this.cachedHeight };
+  }
+  
+  /**
+   * Check if zero-copy mode is enabled
+   */
+  isZeroCopyEnabled(): boolean {
+    return this.zeroCopyEnabled;
+  }
+  
+  /**
+   * Enable or disable zero-copy returns
+   * When enabled, process() returns views into cached buffers (faster, less memory)
+   * When disabled, process() returns copies (safer if caller mutates data)
+   * 
+   * @param enabled - Whether to enable zero-copy mode
+   */
+  setZeroCopyEnabled(enabled: boolean): void {
+    this.zeroCopyEnabled = enabled;
+  }
+  
+  /**
+   * Check if SharedArrayBuffer is being used by the buffer pool
+   */
+  isUsingSharedArrayBuffer(): boolean {
+    return this.bufferPool.isUsingSharedArrayBuffer();
+  }
+  
+  /**
+   * Get buffer pool statistics for diagnostics
+   */
+  getBufferPoolStats(): {
+    totalPoolSize: number;
+    bufferCount: number;
+    activeBuffers: number;
+    isUsingSharedArrayBuffer: boolean;
+  } {
+    return {
+      totalPoolSize: this.bufferPool.getTotalPoolSize(),
+      bufferCount: this.bufferPool.getBufferCount(),
+      activeBuffers: this.bufferPool.getActiveBufferCount(),
+      isUsingSharedArrayBuffer: this.bufferPool.isUsingSharedArrayBuffer(),
+    };
   }
 }
 
