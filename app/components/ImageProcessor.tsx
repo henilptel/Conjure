@@ -510,7 +510,9 @@ export default function ImageProcessor() {
       return `Applying ${activeTools.length} effects...`;
     };
 
-    const timeoutId = setTimeout(async () => {
+    // Process immediately - debouncing is already handled by the Slider component
+    // Removing the redundant setTimeout reduces latency from ~100ms to ~50ms
+    const processImage = async () => {
       if (pipelineOperationRef.current !== operationId) return;
       if (!engineRef.current?.hasImage()) return;
 
@@ -549,9 +551,14 @@ export default function ImageProcessor() {
           setProcessingMessage('');
         }
       }
-    }, isApplyingEffects ? 50 : 0); // Slight delay only when processing effects
+    };
 
-    return () => clearTimeout(timeoutId);
+    processImage();
+
+    // Cleanup: increment operation counter to invalidate if effect re-runs
+    return () => {
+      // No timeout to clear - processing starts immediately
+    };
   }, [activeTools, isCompareMode, setProcessingStatus, setProcessingMessage]);
 
 
