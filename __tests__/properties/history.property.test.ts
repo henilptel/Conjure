@@ -57,12 +57,33 @@ const resetStore = () => {
   });
 };
 
-// Helper to set up history with multiple entries
+/**
+ * Helper to check if two tool arrays are equal
+ */
+const areToolsEqual = (a: ActiveTool[], b: ActiveTool[]): boolean => {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    if (a[i].id !== b[i].id || a[i].value !== b[i].value) return false;
+  }
+  return true;
+};
+
+/**
+ * Helper to set up history with multiple entries.
+ * Note: recordHistory() skips duplicate consecutive states as an optimization,
+ * so this helper filters out duplicates to match expected behavior.
+ */
 const setupHistoryWithEntries = (toolStates: ActiveTool[][]) => {
   resetStore();
+  let lastTools: ActiveTool[] | null = null;
   for (const tools of toolStates) {
+    // Skip if same as last (matches recordHistory deduplication behavior)
+    if (lastTools !== null && areToolsEqual(tools, lastTools)) {
+      continue;
+    }
     useAppStore.setState({ activeTools: tools });
     useAppStore.getState().recordHistory();
+    lastTools = tools;
   }
 };
 
@@ -345,12 +366,20 @@ describe('Property 5: Recording history appends entry and truncates future', () 
         (toolStates, newTools) => {
           setupHistoryWithEntries(toolStates);
 
+          const { history: historyBeforeUndo } = useAppStore.getState();
+          // Skip if we don't have enough distinct entries after deduplication
+          if (historyBeforeUndo.entries.length < 3) return true;
+
           // Undo twice to create future entries
           useAppStore.getState().undo();
           useAppStore.getState().undo();
 
           const { history: historyAfterUndo } = useAppStore.getState();
           const pointerAfterUndo = historyAfterUndo.pointer;
+          const entriesAfterUndo = historyAfterUndo.entries.length;
+          
+          // Get the current entry at pointer (what recordHistory compares against)
+          const currentEntry = historyAfterUndo.entries[pointerAfterUndo];
 
           // Set new tools and record
           useAppStore.setState({ activeTools: newTools });
@@ -358,11 +387,19 @@ describe('Property 5: Recording history appends entry and truncates future', () 
 
           const { history: historyAfterRecord } = useAppStore.getState();
 
-          // Future entries should be truncated
-          expect(historyAfterRecord.entries.length).toBe(pointerAfterUndo + 2);
+          // Check if newTools was a duplicate of entry at pointer (would be skipped)
+          const wasDuplicate = areToolsEqual(newTools, currentEntry.activeTools);
 
-          // Pointer should be at the end
-          expect(historyAfterRecord.pointer).toBe(historyAfterRecord.entries.length - 1);
+          if (wasDuplicate) {
+            // If duplicate, history should remain unchanged (no truncation, no new entry)
+            expect(historyAfterRecord.entries.length).toBe(entriesAfterUndo);
+            expect(historyAfterRecord.pointer).toBe(pointerAfterUndo);
+          } else {
+            // Future entries should be truncated, new entry added
+            expect(historyAfterRecord.entries.length).toBe(pointerAfterUndo + 2);
+            // Pointer should be at the end
+            expect(historyAfterRecord.pointer).toBe(historyAfterRecord.entries.length - 1);
+          }
 
           return true;
         }
@@ -491,6 +528,14 @@ describe('Property 7: canUndo reflects undo availability', () => {
           setupHistoryWithEntries(toolStates);
 
           const { history } = useAppStore.getState();
+          
+          // After deduplication, we may have fewer entries than toolStates.length
+          // Only test if we have at least 2 distinct entries (pointer > 0)
+          if (history.entries.length < 2) {
+            // Not enough distinct states to test canUndo
+            return true;
+          }
+          
           expect(history.pointer).toBeGreaterThan(0);
           expect(useAppStore.getState().canUndo()).toBe(true);
 
@@ -569,6 +614,10 @@ describe('Property 8: canRedo reflects redo availability', () => {
         fc.array(activeToolsArb, { minLength: 2, maxLength: 5 }),
         (toolStates) => {
           setupHistoryWithEntries(toolStates);
+
+          const { history: historyBefore } = useAppStore.getState();
+          // Skip if we don't have enough distinct entries after deduplication
+          if (historyBefore.entries.length < 2) return true;
 
           // Perform undo
           useAppStore.getState().undo();
