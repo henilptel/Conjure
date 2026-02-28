@@ -49,7 +49,7 @@ export function buildSystemMessage(imageContext: ImageState): string {
   const toolsPrompt = generateToolsPrompt();
   const toolCount = Object.keys(TOOL_REGISTRY).length;
 
-  return `You are an AI assistant for an image editing application called MagickFlow.
+  return `You are an AI assistant for an image editing application called Conjure.
 
 Current image state:
 - Image loaded: ${imageContext.hasImage}
