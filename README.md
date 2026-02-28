@@ -1,5 +1,24 @@
 # Conjure
 
+<p align="center">
+  <img src="public/conjure-logo.png" alt="Conjure Logo" width="120" />
+</p>
+
+<p align="center">
+  <strong>AI-powered image editor that runs entirely in your browser.</strong><br/>
+  No uploads. No servers. Just ImageMagick WebAssembly and generative UI.
+</p>
+
+<p align="center">
+  <a href="https://conjure.henilbuilds.tech"><img src="https://img.shields.io/badge/Live%20Demo-conjure.henilbuilds.tech-black?style=flat-square" alt="Live Demo"/></a>
+  <a href="https://github.com/henilptel/Conjure/actions"><img src="https://img.shields.io/github/actions/workflow/status/henilptel/Conjure/deploy.yml?style=flat-square&label=deploy" alt="Deploy Status"/></a>
+  <img src="https://img.shields.io/badge/Next.js-16-black?style=flat-square&logo=next.js" alt="Next.js 16"/>
+  <img src="https://img.shields.io/badge/React-19-61DAFB?style=flat-square&logo=react" alt="React 19"/>
+  <img src="https://img.shields.io/badge/TypeScript-strict-3178C6?style=flat-square&logo=typescript" alt="TypeScript"/>
+</p>
+
+---
+
 A client-side image processing application with AI-powered Generative UI, built with Next.js and ImageMagick WebAssembly. All image processing happens locally in the browser—no server uploads, just pure client-side performance with intelligent AI-generated controls.
 
 ## Why This Exists
@@ -26,7 +45,7 @@ The AI assistant doesn't just answer questions - it generates the exact UI contr
   - **Geometry & Distortion**: Rotate, Wave
 - **Non-Destructive Pipeline**: Effects apply to the original source image through a unified pipeline
 - **Deterministic Effect Order**: Effects always apply in a consistent order for predictable results
-- **Real-Time Preview**: Debounced processing (300ms) for smooth slider interactions
+- **Real-Time Preview**: CSS filter preview during slider drag; WASM processing fires on pointer release for responsive, non-blocking edits
 - **Aspect Ratio Preservation**: Images scale to fit canvas while maintaining proportions
 - **File Validation**: Supports PNG, JPEG, GIF, and WebP formats
 
@@ -118,10 +137,11 @@ You'll need a Groq API key for the chat feature. Get one free at [console.groq.c
 npm install
 ```
 
-2. Create a `.env.local` file:
+2. Set up environment variables:
 
 ```bash
-GROQ_API_KEY=your_api_key_here
+cp .env.example .env.local
+# Add your GROQ_API_KEY to .env.local
 ```
 
 3. Run the development server:
@@ -208,7 +228,7 @@ npm test
 2. **Image Loading**: File is read as Uint8Array and processed for RGBA pixel data
 3. **Canvas Rendering**: Pixels render to canvas, scaled to fit 800×600px max
 4. **Effects Pipeline**: All active tools process through a unified pipeline in deterministic order
-5. **Debounced Updates**: 300ms debounce prevents excessive computation
+5. **Instant Preview**: CSS filters apply during drag for instant feedback; WASM pipeline runs on pointer release
 
 ### Effect Processing Order
 
@@ -282,18 +302,28 @@ Requires WebAssembly and SharedArrayBuffer support:
 
 ## Development Roadmap
 
-**Current Version: v1.0**
+**Current Version: v1.1**
 
 ### Version History
-The project evolved through iterative development: ImageMagick WASM integration (v0.1) → manual controls (v0.2) → AI chat (v0.3) → Generative UI with 15 effects (v0.4) → dynamic dock UI (v0.5) → performance optimizations (v0.6) → UI refinements and testing (v0.7) → architecture overhaul (v0.8) → undo/redo and compare mode (v0.9).
+The project evolved through iterative development: ImageMagick WASM integration (v0.1) → manual controls (v0.2) → Generative UI with 15 effects (v0.4) → dynamic dock + glassmorphism UI (v0.7–v0.9) → architecture overhaul with Zustand (v0.8) → undo/redo and compare mode (v1.0) → BufferPool & CI/CD (v1.1).
 
-### v1.0 Features
-- Full undo/redo support with keyboard shortcuts (Ctrl+Z, Ctrl+Shift+Z)
-- Compare mode (hold Space to view original)
-- Comprehensive test coverage with property-based testing
-- Production-ready architecture
+See [CHANGELOG.md](CHANGELOG.md) for full details.
 
 ### Planned Features
 - Image export functionality
 - Batch processing support
 - Custom tool presets
+
+---
+
+## Contributing
+
+Contributions are welcome! Please read [CONTRIBUTING.md](CONTRIBUTING.md) to get started.
+
+## License
+
+This project is licensed under the [MIT License](LICENSE).
+
+## Code of Conduct
+
+This project follows the [Contributor Covenant](CODE_OF_CONDUCT.md). By participating, you agree to uphold its standards.
