@@ -92,6 +92,13 @@ export function ChatProvider({ children }: ChatProviderProps) {
   // Track processed tool call IDs to avoid duplicate callbacks (bounded FIFO cache)
   const processedToolCallsRef = useRef<Set<string>>(new Set());
   const toolCallOrderRef = useRef<string[]>([]); // FIFO queue for eviction
+  
+  // Track last scanned position to avoid re-scanning entire message history
+  // Format: { messageIndex, partIndex } - resume scanning from here
+  const lastScannedRef = useRef<{ messageIndex: number; partIndex: number }>({
+    messageIndex: 0,
+    partIndex: 0,
+  });
 
   // Single useChat instance for the entire app
   const { messages, sendMessage: baseSendMessage, status, error } = useChat({
@@ -120,15 +127,39 @@ export function ChatProvider({ children }: ChatProviderProps) {
 
   // Process tool calls from streaming responses
   // Detect show_tools and remove_tools tool calls in message parts
+  // Optimization: Track both messageIndex and partIndex to minimize re-scanning
   useEffect(() => {
-    // Scan all messages for tool calls
-    for (const message of messages) {
+    const { messageIndex: lastMsgIdx, partIndex: lastPartIdx } = lastScannedRef.current;
+    
+    // Reset scan position if messages array shrunk (e.g., cleared)
+    if (lastMsgIdx > messages.length) {
+      lastScannedRef.current = { messageIndex: 0, partIndex: 0 };
+      return;
+    }
+    
+    // Track if we found any unprocessed streaming parts (need to re-scan on next update)
+    let hasStreamingParts = false;
+    
+    // Scan from last position
+    for (let msgIdx = lastMsgIdx; msgIdx < messages.length; msgIdx++) {
+      const message = messages[msgIdx];
       if (message.role !== 'assistant' || !message.parts) continue;
 
-      for (const part of message.parts) {
+      // For the starting message, resume from last part index; otherwise start at 0
+      const startPartIdx = msgIdx === lastMsgIdx ? lastPartIdx : 0;
+      
+      for (let partIdx = startPartIdx; partIdx < message.parts.length; partIdx++) {
+        const part = message.parts[partIdx];
+        
         // Check if this is a tool UI part using the helper
         if (isToolUIPart(part)) {
           const toolName = getToolName(part);
+
+          // Track if there are still-streaming parts we need to re-check
+          if (part.state === 'input-streaming') {
+            hasStreamingParts = true;
+            continue;
+          }
 
           // Skip if already processed
           if (processedToolCallsRef.current.has(part.toolCallId)) continue;
@@ -166,6 +197,29 @@ export function ChatProvider({ children }: ChatProviderProps) {
           }
         }
       }
+    }
+    
+    // Update scan position based on what we found
+    if (messages.length > 0) {
+      const lastMsg = messages[messages.length - 1];
+      const lastPartCount = lastMsg.parts?.length ?? 0;
+      
+      if (hasStreamingParts) {
+        // If there are streaming parts, we need to re-scan from the last message
+        // but we can skip completed messages before it
+        lastScannedRef.current = {
+          messageIndex: messages.length - 1,
+          partIndex: 0, // Re-scan all parts of last message to catch state changes
+        };
+      } else {
+        // No streaming parts - we can advance past everything
+        lastScannedRef.current = {
+          messageIndex: messages.length - 1,
+          partIndex: lastPartCount,
+        };
+      }
+    } else {
+      lastScannedRef.current = { messageIndex: 0, partIndex: 0 };
     }
   }, [messages, addTool, removeTool, addProcessedToolCall]);
 

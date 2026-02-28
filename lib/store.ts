@@ -104,14 +104,49 @@ const defaultPreviewState: PreviewState = {
 };
 
 /**
- * Creates a deep copy of activeTools for history entry
+ * Creates a history entry from activeTools.
+ * Uses structural sharing when possible - if tools haven't changed,
+ * reuses the same array reference to reduce memory allocations.
+ * 
+ * @param activeTools - Current active tools array
+ * @param previousEntry - Optional previous entry for structural sharing comparison
  */
-function createHistoryEntry(activeTools: ActiveTool[]): HistoryEntry {
+function createHistoryEntry(
+  activeTools: ActiveTool[],
+  previousEntry?: HistoryEntry
+): HistoryEntry {
+  // Check if we can reuse the previous entry's tools array (structural sharing)
+  if (previousEntry && areToolsEqual(activeTools, previousEntry.activeTools)) {
+    return {
+      activeTools: previousEntry.activeTools, // Reuse reference
+      timestamp: Date.now(),
+    };
+  }
+  
+  // Need to create a new copy
   return {
     activeTools: activeTools.map(tool => ({ ...tool })),
     timestamp: Date.now(),
   };
 }
+
+/**
+ * Fast equality check for tool arrays.
+ * Returns true if both arrays have the same tools with same values.
+ */
+function areToolsEqual(a: ActiveTool[], b: ActiveTool[]): boolean {
+  if (a.length !== b.length) return false;
+  if (a === b) return true; // Same reference
+  
+  for (let i = 0; i < a.length; i++) {
+    if (a[i].id !== b[i].id || a[i].value !== b[i].value) {
+      return false;
+    }
+  }
+  return true;
+}
+
+
 
 /**
  * Zustand store for application state
@@ -384,11 +419,26 @@ export const useAppStore = create<AppState>((set, get) => ({
    * Record current activeTools state to history.
    * Creates a new entry, truncates any future entries (after current pointer),
    * and respects maxSize by removing oldest entries if needed.
+   * 
+   * Optimizations:
+   * - Uses structural sharing to avoid copying unchanged tool arrays
+   * - Skips recording if tools haven't changed from last entry (deduplication)
+   * - Minimizes array allocations by reusing when possible
+   * 
    * Requirements: 3.1, 3.2, 3.3, 3.4, 3.5
    */
   recordHistory: () => {
     const { activeTools, history } = get();
-    const newEntry = createHistoryEntry(activeTools);
+    const lastEntry = history.entries[history.pointer];
+    
+    // Skip if tools haven't changed (avoid duplicate entries)
+    // This is an optimization - we don't want consecutive identical states
+    if (lastEntry && areToolsEqual(activeTools, lastEntry.activeTools)) {
+      return;
+    }
+    
+    // Create entry with structural sharing
+    const newEntry = createHistoryEntry(activeTools, lastEntry);
     
     // Truncate future entries (everything after current pointer)
     const truncatedEntries = history.entries.slice(0, history.pointer + 1);

@@ -3,6 +3,7 @@
 import { memo } from 'react';
 import { motion } from 'framer-motion';
 import { Undo2, Redo2 } from 'lucide-react';
+import { useShallow } from 'zustand/react/shallow';
 import { useAppStore } from '@/lib/store';
 import { glassSubtle, iconSize, magneticButton } from '@/lib/design-tokens';
 
@@ -19,13 +20,16 @@ export interface UndoRedoButtonsProps {
 }
 
 function UndoRedoButtonsComponent({ disabled = false }: UndoRedoButtonsProps) {
-  const undo = useAppStore((state) => state.undo);
-  const redo = useAppStore((state) => state.redo);
-  const processingStatus = useAppStore((state) => state.processingStatus);
-  
-  // Subscribe to history state to properly re-render when it changes
-  const historyPointer = useAppStore((state) => state.history.pointer);
-  const historyLength = useAppStore((state) => state.history.entries.length);
+  // Combine all store selectors into a single subscription using useShallow
+  const { undo, redo, processingStatus, historyPointer, historyLength } = useAppStore(
+    useShallow((state) => ({
+      undo: state.undo,
+      redo: state.redo,
+      processingStatus: state.processingStatus,
+      historyPointer: state.history.pointer,
+      historyLength: state.history.entries.length,
+    }))
+  );
 
   // Disable during processing (Requirements: 4.5)
   const isProcessing = processingStatus === 'processing' || processingStatus === 'initializing';
