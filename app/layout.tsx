@@ -20,10 +20,38 @@ const syne = Syne({
 
 export const metadata: Metadata = {
   title: "Conjure",
-  description: "Client-side image processing using ImageMagick WebAssembly",
+  description: "AI-powered image editor that runs entirely in your browser. No uploads, no servers — just ImageMagick WebAssembly and generative UI.",
   icons: {
-    icon: "/favicon.ico",
-    apple: "/apple-touch-icon.png",
+    icon: [
+      { url: "/favicon/favicon-16x16.png", sizes: "16x16", type: "image/png" },
+      { url: "/favicon/favicon-32x32.png", sizes: "32x32", type: "image/png" },
+      { url: "/favicon/favicon.ico" },
+    ],
+    apple: "/favicon/apple-touch-icon.png",
+    other: [
+      { rel: "manifest", url: "/favicon/site.webmanifest" },
+    ],
+  },
+  openGraph: {
+    title: "Conjure — AI Image Editor",
+    description: "AI-powered image editor that runs entirely in your browser. No uploads, no servers — just ImageMagick WebAssembly and generative UI.",
+    url: "https://conjure.vercel.app",
+    siteName: "Conjure",
+    images: [
+      {
+        url: "/conjure-logo.png",
+        width: 1200,
+        height: 630,
+        alt: "Conjure AI Image Editor",
+      },
+    ],
+    type: "website",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "Conjure — AI Image Editor",
+    description: "AI-powered image editor that runs entirely in your browser.",
+    images: ["/conjure-logo.png"],
   },
 };
 
